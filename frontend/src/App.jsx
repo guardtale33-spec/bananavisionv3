@@ -124,6 +124,18 @@ const InnerApp = () => {
         return;
       }
 
+      // Check if the image is not a banana leaf/stem
+      if (analysisResult.isBanana === false) {
+        setResult({
+          disease: "Bukan Daun/Batang Pisang",
+          confidence: analysisResult.confidence,
+          severity: "not_banana",
+          message:
+            "Gambar yang Anda unggah bukan daun atau batang pisang. Silakan unggah foto daun atau batang pisang untuk mendapatkan hasil analisis yang akurat.",
+        });
+        return;
+      }
+
       // Map API response to UI format
       setResult({
         disease: analysisResult.detectedDisease,

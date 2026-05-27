@@ -2,8 +2,9 @@ const AnalysisModel = require("../models/analysisModel");
 const DiseaseModel = require("../models/diseaseModel");
 const axios = require("axios");
 
-
-const ML_SERVER_URL = (process.env.ML_SERVER_URL || "http://localhost:5001").replace(/\/$/, "");
+const ML_SERVER_URL = (
+  process.env.ML_SERVER_URL || "http://localhost:5001"
+).replace(/\/$/, "");
 
 class AnalysisService {
   static async analyzeImage(userId, imageBase64, notes = null) {
@@ -25,6 +26,19 @@ class AnalysisService {
 
       const predictionData = mlResponse.data.data;
 
+      // If the image is not a banana leaf/stem, return immediately
+      // without saving to the analysis history
+      if (predictionData.is_banana === false) {
+        return {
+          isBanana: false,
+          detectedDisease: predictionData.detectedDisease,
+          category: predictionData.category,
+          severity: predictionData.severity,
+          confidence: predictionData.confidence,
+          predictions: predictionData.predictions,
+        };
+      }
+
       // Get or create disease record
       let disease = await DiseaseModel.getDiseaseByName(
         predictionData.detectedDisease,
@@ -43,7 +57,7 @@ class AnalysisService {
         notes,
       });
 
-      return analysis;
+      return { ...analysis, isBanana: true };
     } catch (error) {
       console.error("ML Server Error:", error.message);
 
@@ -111,19 +125,22 @@ class AnalysisService {
       let diseaseCount = 0;
 
       analyses.forEach((analysis) => {
-        const isHealthy = analysis.detectedDisease?.toLowerCase() === "healthy" || 
-                          analysis.detectedDisease?.toLowerCase() === "sehat" ||
-                          analysis.detectedDisease?.toLowerCase() === "healthy leaf";
+        const isHealthy =
+          analysis.detectedDisease?.toLowerCase() === "healthy" ||
+          analysis.detectedDisease?.toLowerCase() === "sehat" ||
+          analysis.detectedDisease?.toLowerCase() === "healthy leaf";
         if (isHealthy) {
           healthyCount++;
         } else {
           diseaseCount++;
         }
-        totalConfidence += (analysis.confidence || 0);
+        totalConfidence += analysis.confidence || 0;
       });
 
-      const avgConfidence = totalAnalyses > 0 ? (totalConfidence / totalAnalyses) : 0;
-      const diseasePrevalence = totalAnalyses > 0 ? (diseaseCount / totalAnalyses) * 100 : 0;
+      const avgConfidence =
+        totalAnalyses > 0 ? totalConfidence / totalAnalyses : 0;
+      const diseasePrevalence =
+        totalAnalyses > 0 ? (diseaseCount / totalAnalyses) * 100 : 0;
 
       return {
         totalAnalyses,
@@ -145,7 +162,7 @@ class AnalysisService {
       let days = 7;
 
       if (period === "30d") days = 30;
-      if (period === "1y") days = 365;
+      if (period === "1y" || period === "365d") days = 365;
 
       for (let i = days - 1; i >= 0; i--) {
         const date = new Date(now);
@@ -153,14 +170,12 @@ class AnalysisService {
         const dateStr = date.toISOString().split("T")[0];
 
         const count = analyses.filter((a) => {
-          const analysisDate = new Date(a.createdAt)
-            .toISOString()
-            .split("T")[0];
+          const analysisDate = new Date(a.createdAt).toISOString().slice(0, 10);
           return analysisDate === dateStr;
         }).length;
 
         trends.push({
-          day: date.toLocaleDateString("id-ID", { weekday: 'short' }),
+          day: date.toLocaleDateString("id-ID", { weekday: "short" }),
           date: dateStr,
           count,
         });

@@ -1,6 +1,6 @@
 const prisma = require('../../config/database');
 
-class userModel {
+class UserModel {
 
   static async findByEmail(email) {
     return await prisma.user.findUnique({
@@ -77,4 +77,4 @@ class userModel {
   }
 }
 
-module.exports = userModel;
+module.exports = UserModel;

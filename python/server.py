@@ -1,35 +1,80 @@
 import os
-import json
+from dotenv import load_dotenv
+
+# Muat variabel environment dari file .env
+load_dotenv()
+
 import numpy as np
 import tensorflow as tf
 from PIL import Image
 import io
 import base64
 from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 
 app = FastAPI(title="BananaVision API", description="AI-powered banana disease detection", version="1.0.0")
 
-# Add CORS middleware
-import os as _os
-_allowed_origins = [o.strip() for o in _os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174").split(",") if o.strip()]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_allowed_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
-)
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), 'model_mobilenetv2_final.keras')
-model = None
+# ─────────────────────────────────────────────────────────────────
+# Model configuration — switch via MODEL_TYPE env var
+# Supported: "mobilenetv2" (default) or "resnet50"
+# ─────────────────────────────────────────────────────────────────
+MODEL_TYPE = os.environ.get("MODEL_TYPE", "mobilenetv2").lower().strip()
+
+MODEL_DIR = os.path.dirname(__file__)
+
+MODEL_CONFIG = {
+    "mobilenetv2": {
+        "path": os.path.join(MODEL_DIR, "model_mobilenetv2_final.keras"),
+        "imagenet_loader": lambda: tf.keras.applications.MobileNetV2(
+            weights="imagenet", include_top=True, input_shape=(224, 224, 3)
+        ),
+        "preprocess_input": tf.keras.applications.mobilenet_v2.preprocess_input,
+        "decode_predictions": tf.keras.applications.mobilenet_v2.decode_predictions,
+    },
+    "resnet50": {
+        "path": os.path.join(MODEL_DIR, "model_resnet50_final.keras"),
+        "imagenet_loader": lambda: tf.keras.applications.ResNet50(
+            weights="imagenet", include_top=True, input_shape=(224, 224, 3)
+        ),
+        "preprocess_input": tf.keras.applications.resnet50.preprocess_input,
+        "decode_predictions": tf.keras.applications.resnet50.decode_predictions,
+    },
+}
+
+if MODEL_TYPE not in MODEL_CONFIG:
+    raise ValueError(
+        f"MODEL_TYPE='{MODEL_TYPE}' tidak didukung. "
+        f"Gunakan: {', '.join(MODEL_CONFIG.keys())}"
+    )
+
+_cfg = MODEL_CONFIG[MODEL_TYPE]
+
+# Will be populated at startup
+disease_model = None
+imagenet_model = None
+
 
 @app.on_event("startup")
 async def load_model():
-    global model
-    model = tf.keras.models.load_model(MODEL_PATH)
+    global disease_model, imagenet_model
+
+    model_path = _cfg["path"]
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(
+            f"Model file tidak ditemukan: {model_path}. "
+            f"Pastikan file model '{MODEL_TYPE}' ada di folder python/"
+        )
+
+    print(f"🔄 Loading disease model ({MODEL_TYPE}): {os.path.basename(model_path)}")
+    disease_model = tf.keras.models.load_model(model_path)
+    print(f"✅ Disease model loaded: {MODEL_TYPE}")
+
+    print(f"🔄 Loading ImageNet gatekeeper ({MODEL_TYPE})...")
+    imagenet_model = _cfg["imagenet_loader"]()
+    print(f"✅ ImageNet gatekeeper loaded: {MODEL_TYPE}")
+
 
 # Disease mapping
 DISEASE_MAP = {
@@ -42,8 +87,30 @@ DISEASE_MAP = {
     6: {'name': 'Yellow Sigatoka', 'category': 'Jamur', 'severity': 'Sedang'},
 }
 
+# ─────────────────────────────────────────────────────────────────
+# ImageNet plant-related keywords for the gatekeeper.
+# If the top-10 ImageNet predictions contain any of these keywords
+# with cumulative score >= PLANT_GATE_THRESHOLD, we allow the image.
+# ─────────────────────────────────────────────────────────────────
+PLANT_KEYWORDS = {
+    'banana', 'plantain', 'leaf', 'plant', 'garden', 'greenhouse',
+    'pot', 'flower', 'herb', 'grass', 'tree', 'palm', 'frond',
+    'vegetation', 'jungle', 'rainforest', 'tropical',
+    'acorn', 'mushroom', 'fungus', 'ear', 'corn', 'seed',
+    'hay', 'straw', 'hedge', 'lawn', 'meadow',
+    'head_cabbage', 'broccoli', 'cauliflower', 'zucchini', 'cucumber',
+    'artichoke', 'cardoon', 'bell_pepper', 'fig', 'pineapple',
+    'jackfruit', 'custard_apple', 'pomegranate', 'lemon', 'orange',
+    'strawberry', 'rapeseed', 'daisy', 'sunflower',
+}
+
+# Minimum cumulative probability (%) across top-10 plant-related
+# predictions to consider the image as containing a banana/plant
+PLANT_GATE_THRESHOLD = 5.0
+
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
+
 
 class PredictionRequest(BaseModel):
     image: str  # base64 encoded image
@@ -58,10 +125,12 @@ class PredictionResponse(BaseModel):
     message: Optional[str] = None
 
 
-def preprocess_image(image_data, target_size=(224, 224)):
-
+# ─────────────────────────────────────────────────────────────────
+# Image processing helpers
+# ─────────────────────────────────────────────────────────────────
+def open_image(image_data):
+    """Open image from base64 string or PIL Image, return PIL Image in RGB."""
     if isinstance(image_data, str):
-
         try:
             img_bytes = base64.b64decode(image_data)
         except Exception:
@@ -72,19 +141,97 @@ def preprocess_image(image_data, target_size=(224, 224)):
             raise HTTPException(status_code=400, detail="Data gambar tidak dapat dibaca")
     else:
         img = image_data
+    return img.convert('RGB')
 
-    img = img.convert('RGB')
+
+def preprocess_for_disease(img, target_size=(224, 224)):
+    """Preprocess for the custom disease classifier (0-1 normalized)."""
     img = img.resize(target_size)
     img_array = np.array(img) / 255.0
     img_array = np.expand_dims(img_array, axis=0)
     return img_array
 
 
-def run_prediction(image_data) -> dict:
-    """Shared prediction logic used by both endpoints"""
-    image_array = preprocess_image(image_data)
+def preprocess_for_imagenet(img, target_size=(224, 224)):
+    """
+    Preprocess for the ImageNet gatekeeper model.
+    Uses the correct preprocessing function for the active MODEL_TYPE
+    (MobileNetV2 uses [-1, 1] range, ResNet50 uses caffe-style BGR mean subtraction).
+    """
+    img = img.resize(target_size)
+    img_array = np.array(img, dtype=np.float32)
+    img_array = np.expand_dims(img_array, axis=0)
+    img_array = _cfg["preprocess_input"](img_array)
+    return img_array
 
-    predictions = model.predict(image_array, verbose=0)
+
+# ─────────────────────────────────────────────────────────────────
+# Gatekeeper: validate image is banana/plant-related via ImageNet
+# ─────────────────────────────────────────────────────────────────
+def check_is_banana_plant(img) -> dict:
+    """
+    Use the ImageNet model (same architecture as the disease model) to check
+    whether the image is related to banana plants / vegetation.
+    Returns dict with 'is_plant' bool and diagnostic details.
+    """
+    img_array = preprocess_for_imagenet(img)
+    preds = imagenet_model.predict(img_array, verbose=0)
+    decoded = _cfg["decode_predictions"](preds, top=10)[0]
+
+    plant_score = 0.0
+    matched_labels = []
+
+    for (_id, label, score) in decoded:
+        label_lower = label.lower().replace('-', '_').replace(' ', '_')
+        # Check if any plant-related keyword matches in the label
+        is_match = any(kw in label_lower for kw in PLANT_KEYWORDS)
+
+        if is_match:
+            plant_score += score * 100
+            matched_labels.append(f"{label} ({score*100:.1f}%)")
+
+    return {
+        'is_plant': plant_score >= PLANT_GATE_THRESHOLD,
+        'plant_score': round(plant_score, 2),
+        'matched_labels': matched_labels,
+        'top_predictions': [
+            f"{label} ({score*100:.1f}%)"
+            for (_id, label, score) in decoded[:5]
+        ],
+    }
+
+
+# ─────────────────────────────────────────────────────────────────
+# Main prediction pipeline
+# ─────────────────────────────────────────────────────────────────
+def run_prediction(image_data) -> dict:
+    """
+    Two-stage prediction pipeline:
+      1. ImageNet gatekeeper — reject non-plant images
+      2. Disease classifier  — classify banana disease
+    """
+    img = open_image(image_data)
+
+    # ── Step 1: Gatekeeper — is this actually a banana plant image? ──
+    gate_result = check_is_banana_plant(img)
+
+    if not gate_result['is_plant']:
+        return {
+            'is_banana': False,
+            'detectedDisease': 'Bukan Daun/Batang Pisang',
+            'category': 'Tidak Dikenali',
+            'severity': 'unknown',
+            'confidence': 0,
+            'gate_info': {
+                'top_predictions': gate_result['top_predictions'],
+                'plant_score': gate_result['plant_score'],
+            },
+            'predictions': []
+        }
+
+    # ── Step 2: Run the disease classification model ──
+    image_array = preprocess_for_disease(img)
+    predictions = disease_model.predict(image_array, verbose=0)
     confidence_scores = predictions[0]
     predicted_class = int(np.argmax(confidence_scores))
     confidence = float(confidence_scores[predicted_class]) * 100
@@ -96,6 +243,7 @@ def run_prediction(image_data) -> dict:
     })
 
     return {
+        'is_banana': True,
         'detectedDisease': disease_info['name'],
         'category': disease_info['category'],
         'severity': disease_info['severity'],
@@ -110,6 +258,9 @@ def run_prediction(image_data) -> dict:
     }
 
 
+# ─────────────────────────────────────────────────────────────────
+# API Endpoints
+# ─────────────────────────────────────────────────────────────────
 @app.post("/api/predict", response_model=PredictionResponse)
 async def predict(request: PredictionRequest):
     """ML prediction endpoint (base64 image)"""
@@ -155,11 +306,21 @@ async def predict_file(file: UploadFile = File(...)):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "model": "loaded"}
+    return {
+        "status": "ok",
+        "model_type": MODEL_TYPE,
+        "model_loaded": disease_model is not None,
+        "gatekeeper_loaded": imagenet_model is not None,
+    }
 
 @app.get("/")
 async def root():
-    return {"message": "BananaVision API", "version": "1.0.0", "status": "running"}
+    return {
+        "message": "BananaVision API",
+        "version": "1.0.0",
+        "status": "running",
+        "model_type": MODEL_TYPE,
+    }
 
 
 if __name__ == "__main__":

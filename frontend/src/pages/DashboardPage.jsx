@@ -11,12 +11,21 @@ import {
   BarChart2,
   ChevronRight,
 } from "lucide-react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+} from "recharts";
 import { getToken } from "../utils/token";
 import {
   getAnalyses,
   getDashboardStats,
   getDashboardTrends,
-  getUserStatistics,
 } from "../hooks/data";
 
 export default function DashboardPage({ setCurrentPage, user }) {
@@ -31,10 +40,6 @@ export default function DashboardPage({ setCurrentPage, user }) {
   });
   const [recentAnalyses, setRecentAnalyses] = useState([]);
   const [trends, setTrends] = useState([]);
-  const [backendStats, setBackendStats] = useState({
-    totalAnalyses: 0,
-    diseaseCounts: {},
-  });
   const [trendsPeriod, setTrendsPeriod] = useState("7d");
 
   useEffect(() => {
@@ -49,12 +54,11 @@ export default function DashboardPage({ setCurrentPage, user }) {
       setError(null);
 
       // Fetch independently so one failure won't block others
-      const [statsResult, analysesResult, trendsResult, backendStatsResult] =
+      const [statsResult, analysesResult, trendsResult] =
         await Promise.allSettled([
           getDashboardStats(token),
           getAnalyses(token, { limit: 5 }),
           getDashboardTrends(token, trendsPeriod),
-          getUserStatistics(token),
         ]);
 
       if (statsResult.status === "fulfilled" && statsResult.value) {
@@ -79,18 +83,6 @@ export default function DashboardPage({ setCurrentPage, user }) {
         setTrends(Array.isArray(trendsResult.value) ? trendsResult.value : []);
       }
 
-      if (
-        backendStatsResult.status === "fulfilled" &&
-        backendStatsResult.value
-      ) {
-        setBackendStats(backendStatsResult.value);
-      } else if (backendStatsResult.status === "rejected") {
-        console.warn(
-          "Backend statistics fetch failed:",
-          backendStatsResult.reason,
-        );
-      }
-
       setLoading(false);
     };
 
@@ -112,19 +104,64 @@ export default function DashboardPage({ setCurrentPage, user }) {
     return `${Math.floor(diff / 86400)} hari lalu`;
   };
 
-  const backendDiseaseCounts = backendStats.diseaseCounts || {};
-  const backendTotalAnalyses = backendStats.totalAnalyses || 0;
-  const backendHealthyCount = Object.entries(backendDiseaseCounts)
-    .filter(([disease]) => isHealthy(disease))
-    .reduce((sum, [, count]) => sum + count, 0);
-  const backendDiseaseCount = backendTotalAnalyses - backendHealthyCount;
-  const backendDiseasePrevalence = backendTotalAnalyses
-    ? Math.round((backendDiseaseCount / backendTotalAnalyses) * 100)
-    : 0;
+  const monthNames = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "Mei",
+    "Jun",
+    "Jul",
+    "Agu",
+    "Sep",
+    "Okt",
+    "Nov",
+    "Des",
+  ];
 
+  const formatTrendData = (data, period) => {
+    if (!Array.isArray(data) || data.length === 0) return [];
+
+    if (period === "30d") {
+      const weeks = [0, 7, 14, 21];
+      return weeks.map((start, index) => {
+        const slice = data.slice(start, start + 7);
+        return {
+          label: `Minggu ${index + 1}`,
+          count: slice.reduce((sum, item) => sum + (item.count || 0), 0),
+        };
+      });
+    }
+
+    if (period === "1y") {
+      const monthlyTotals = data.reduce((acc, item) => {
+        const monthIndex = new Date(item.date).getMonth();
+        acc[monthIndex] = (acc[monthIndex] || 0) + (item.count || 0);
+        return acc;
+      }, {});
+
+      return monthNames.map((label, monthIndex) => ({
+        label,
+        count: monthlyTotals[monthIndex] ?? 0,
+      }));
+    }
+
+    return data.map((item) => ({
+      ...item,
+      label: item.day,
+    }));
+  };
+
+  const chartData = formatTrendData(trends, trendsPeriod);
   const maxCount =
-    trends.length > 0 ? Math.max(1, ...trends.map((t) => t.count)) : 1;
-  const hasTrendData = trends.some((t) => t.count > 0);
+    chartData.length > 0 ? Math.max(1, ...chartData.map((t) => t.count)) : 1;
+  const hasTrendData = chartData.some((t) => t.count > 0);
+  const trendPeriodLabel =
+    trendsPeriod === "30d"
+      ? "4 minggu"
+      : trendsPeriod === "1y"
+        ? "12 bulan"
+        : "7 hari";
 
   if (loading) {
     return (
@@ -266,111 +303,6 @@ export default function DashboardPage({ setCurrentPage, user }) {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 mb-6">
-        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-yellow-50 flex items-center justify-center">
-                  <BarChart2 className="w-4 h-4 text-yellow-600" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-gray-800">
-                    Statistik
-                  </h3>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Data penyakit dan ringkasan analisis terakhir
-                  </p>
-                </div>
-              </div>
-              <span className="text-xs font-semibold text-gray-500">
-                Total {backendTotalAnalyses} analisis
-              </span>
-            </div>
-
-            {backendTotalAnalyses === 0 ? (
-              <p className="text-sm text-gray-500">
-                Belum ada data statistik dari backend.
-              </p>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {[
-                  {
-                    label: "Daun Sehat",
-                    value: backendHealthyCount,
-                    color: "text-emerald-600",
-                  },
-                  {
-                    label: "Penyakit",
-                    value: backendDiseaseCount,
-                    color: "text-rose-600",
-                  },
-                  {
-                    label: "Prevalensi",
-                    value: `${backendDiseasePrevalence}%`,
-                    color: "text-amber-600",
-                  },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className="rounded-2xl bg-gray-50 p-4 border border-gray-100"
-                  >
-                    <p className="text-xs text-gray-500 uppercase tracking-wider">
-                      {item.label}
-                    </p>
-                    <p className={`text-2xl font-bold mt-2 ${item.color}`}>
-                      {item.value}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-gray-100 flex items-center justify-center">
-                  <BarChart2 className="w-4 h-4 text-gray-600" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-gray-800">
-                    Penyakit Teratas
-                  </h4>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Berdasarkan jumlah analisis
-                  </p>
-                </div>
-              </div>
-            </div>
-            {Object.keys(backendDiseaseCounts).length === 0 ? (
-              <p className="text-sm text-gray-500">
-                Belum ada data penyakit untuk ditampilkan.
-              </p>
-            ) : (
-              <div className="grid gap-3">
-                {Object.entries(backendDiseaseCounts)
-                  .sort((a, b) => b[1] - a[1])
-                  .slice(0, 6)
-                  .map(([disease, count]) => (
-                    <div
-                      key={disease}
-                      className="flex items-center justify-between rounded-2xl bg-gray-50 px-4 py-3 border border-gray-100"
-                    >
-                      <span className="text-sm text-gray-700 truncate">
-                        {disease}
-                      </span>
-                      <span className="text-sm font-semibold text-gray-900">
-                        {count}
-                      </span>
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* ── Main Content ── */}
       <div className="max-w-5xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Left: Trends + Recent */}
@@ -393,6 +325,7 @@ export default function DashboardPage({ setCurrentPage, user }) {
               >
                 <option value="7d">7 Hari</option>
                 <option value="30d">30 Hari</option>
+                <option value="1y">1 Tahun</option>
               </select>
             </div>
 
@@ -400,47 +333,64 @@ export default function DashboardPage({ setCurrentPage, user }) {
               <div className="flex items-center justify-between text-[11px] text-gray-400 px-1">
                 <span>
                   {hasTrendData
-                    ? `${Math.max(...trends.map((item) => item.count))} analisis`
+                    ? `${Math.max(...chartData.map((item) => item.count))} analisis`
                     : "Data tren belum tersedia"}
                 </span>
-                <span>{trends.length} hari</span>
+                <span>{trendPeriodLabel}</span>
               </div>
-              <div className="h-48 flex items-end justify-between gap-1 sm:gap-2 px-1">
-                {trends.length === 0 ? (
+              <div className="h-80">
+                {chartData.length === 0 ? (
                   <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 gap-2">
                     <BarChart2 className="w-10 h-10 opacity-30" />
                     <p className="text-sm">Belum ada data untuk periode ini</p>
                   </div>
                 ) : (
-                  trends.map((item, idx) => {
-                    const heightPercent = (item.count / maxCount) * 100;
-                    return (
-                      <div
-                        key={idx}
-                        className="flex flex-col items-center gap-1 flex-1 group cursor-pointer"
-                        title={`${item.day}: ${item.count} analisis`}
-                      >
-                        <span className="text-[10px] text-gray-500">
-                          {item.count}
-                        </span>
-                        <div
-                          className="w-full rounded-t-lg bg-green-100 group-hover:bg-green-200 transition-colors relative overflow-hidden"
-                          style={{
-                            height: `${Math.max(heightPercent, 6)}%`,
-                            minHeight: "6px",
-                          }}
-                        >
-                          <div
-                            className="absolute bottom-0 w-full bg-gradient-to-t from-green-600 to-green-400 rounded-t-lg"
-                            style={{ height: "100%" }}
-                          />
-                        </div>
-                        <span className="text-[9px] sm:text-xs font-medium text-gray-500">
-                          {item.day}
-                        </span>
-                      </div>
-                    );
-                  })
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={chartData}
+                      margin={{ top: 10, right: 8, left: -12, bottom: 10 }}
+                    >
+                      <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fontSize: 12, fill: "#6b7280" }}
+                        axisLine={false}
+                        tickLine={false}
+                        padding={{ left: 10, right: 10 }}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 12, fill: "#6b7280" }}
+                        axisLine={false}
+                        tickLine={false}
+                        allowDecimals={false}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: "1rem",
+                          border: "1px solid #e5e7eb",
+                          backgroundColor: "#ffffff",
+                          boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
+                        }}
+                        labelStyle={{ color: "#111827", fontWeight: "700" }}
+                        formatter={(value) => [`${value} analisis`, "Total"]}
+                      />
+                      <Legend
+                        verticalAlign="top"
+                        align="right"
+                        iconType="circle"
+                        wrapperStyle={{ fontSize: 12, color: "#6b7280" }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="count"
+                        name="Analisis"
+                        stroke="#16a34a"
+                        strokeWidth={3}
+                        dot={{ r: 4, fill: "#16a34a" }}
+                        activeDot={{ r: 6 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
                 )}
               </div>
             </div>
@@ -479,7 +429,7 @@ export default function DashboardPage({ setCurrentPage, user }) {
                 </button>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2" h="300px" style={{ maxHeight: "300px", overflowY: "auto" }}>
                 {recentAnalyses.map((item) => (
                   <div
                     key={item.id}

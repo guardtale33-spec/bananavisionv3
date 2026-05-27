@@ -9,7 +9,6 @@ export const API_ENDPOINTS = {
   ANALYZE_IMAGE: `${BASE_URL}/analyses/analyze`,
   DASHBOARD_STATS: `${BASE_URL}/analyses/dashboard/stats`,
   DASHBOARD_TRENDS: `${BASE_URL}/analyses/dashboard/trends`,
-  STATISTICS_USER: `${BASE_URL}/statistics/user`,
   DISEASES: `${BASE_URL}/diseases`,
   FEEDBACK: `${BASE_URL}/feedbacks`,
 };
@@ -210,6 +209,27 @@ export const deleteAnalysis = async (token, id) => {
   }
 };
 
+export const getFeedbacksByUserId = async (token, userId) => {
+  try {
+    const response = await fetch(`${API_ENDPOINTS.FEEDBACK}/user/${userId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch feedback");
+    }
+
+    const data = await response.json();
+    return data.data;
+  } catch (err) {
+    console.error("❌ Failed to fetch feedback:", err);
+    throw err;
+  }
+};
+
 /**
  * Get dashboard statistics
  */
@@ -230,27 +250,6 @@ export const getDashboardStats = async (token) => {
     return data.data;
   } catch (err) {
     console.error("❌ Failed to fetch dashboard stats:", err);
-    throw err;
-  }
-};
-
-export const getUserStatistics = async (token) => {
-  try {
-    const response = await fetch(API_ENDPOINTS.STATISTICS_USER, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to fetch user statistics");
-    }
-
-    const data = await response.json();
-    return data.data;
-  } catch (err) {
-    console.error("❌ Failed to fetch user statistics:", err);
     throw err;
   }
 };

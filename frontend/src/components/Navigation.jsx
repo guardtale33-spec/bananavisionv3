@@ -1,15 +1,13 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import {
   Menu,
   X,
-  Leaf,
   Home,
   Activity,
   Camera,
   History,
   Book,
   User,
-  LogOut,
 } from "lucide-react";
 
 export default function Navigation({
@@ -23,7 +21,7 @@ export default function Navigation({
   const [profileOpen, setProfileOpen] = useState(false);
 
   const items = [
-    { icon: Home, label: "Home", page: "home" },
+    { icon: Home, label: "Beranda", page: "home" },
     { icon: Activity, label: "Dashboard", page: "dashboard" },
     { icon: Camera, label: "Analisis", page: "analyze" },
     { icon: History, label: "Riwayat", page: "history" },
@@ -192,9 +190,6 @@ export default function Navigation({
             <div className="p-6">
               <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center gap-2">
-                  <div className="">
-
-                  </div>
                   <span className="font-bold text-xl text-gray-800 flex">
                     <p className="text-green-500">Banana</p>Vision
                   </span>

@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from "react";
 import {
   Upload, Camera, X, CheckCircle, AlertCircle, ChevronRight,
   Star, Leaf, Microscope, RefreshCw, Info, Zap, ImagePlus, Sparkles,
+  AlertTriangle, Ban, ImageOff,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { getToken } from "../utils/token";
@@ -20,6 +21,7 @@ export default function AnalyzePage({
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [hoverStar, setHoverStar] = useState(0);
+  const [showNotBananaPopup, setShowNotBananaPopup] = useState(false);
   const navigate = useNavigate();
 
   const progressSteps = [
@@ -30,6 +32,13 @@ export default function AnalyzePage({
   useEffect(() => {
     if (!getToken()) navigate("/login");
   }, []);
+
+  // Show popup when not-banana result is detected
+  useEffect(() => {
+    if (result?.severity === "not_banana") {
+      setShowNotBananaPopup(true);
+    }
+  }, [result]);
 
   useEffect(() => {
     let id;
@@ -68,7 +77,7 @@ export default function AnalyzePage({
     }
   };
 
-  const resetFeedback = () => { setFeedbackSubmitted(false); setFeedbackRating(0); setFeedbackText(""); setHoverStar(0); };
+  const resetFeedback = () => { setFeedbackSubmitted(false); setFeedbackRating(0); setFeedbackText(""); setHoverStar(0); setShowNotBananaPopup(false); };
   const handleSelectImageWrapper = (e) => { handleImageSelect(e); resetFeedback(); };
   const handleCameraClick = () => { if (cameraInputRef.current) { cameraInputRef.current.value = ""; cameraInputRef.current.click(); } };
 
@@ -404,6 +413,110 @@ export default function AnalyzePage({
           </div>
         )}
       </div>
+
+      {/* ── NOT BANANA POPUP MODAL ── */}
+      {showNotBananaPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ animation: 'fadeIn 0.3s ease-out' }}>
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => { setShowNotBananaPopup(false); setSelectedImage(null); resetFeedback(); }}
+            style={{ animation: 'fadeIn 0.2s ease-out' }}
+          />
+
+          {/* Modal */}
+          <div
+            className="relative bg-white rounded-3xl shadow-2xl max-w-sm w-full overflow-hidden"
+            style={{ animation: 'scaleIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+          >
+            {/* Top gradient accent */}
+            <div className="bg-gradient-to-br from-red-500 via-orange-500 to-amber-500 p-6 pb-8 text-center relative overflow-hidden">
+              <div className="absolute inset-0 opacity-10">
+                <div className="absolute top-0 left-0 w-40 h-40 bg-white rounded-full -translate-x-1/2 -translate-y-1/2" />
+                <div className="absolute bottom-0 right-0 w-56 h-56 bg-white rounded-full translate-x-1/3 translate-y-1/3" />
+              </div>
+              <div className="relative">
+                <div className="w-20 h-20 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm" style={{ animation: 'bounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both' }}>
+                  <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
+                    <ImageOff className="w-8 h-8 text-white" />
+                  </div>
+                </div>
+                <h2 className="text-xl font-bold text-white mb-1">Gambar Tidak Dikenali</h2>
+                <p className="text-white/80 text-sm">Bukan daun atau batang pisang</p>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4">
+              <div className="bg-red-50 border border-red-100 rounded-2xl p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <AlertTriangle className="w-4 h-4 text-red-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-red-800 mb-1">Deteksi Gagal</p>
+                    <p className="text-xs text-red-600 leading-relaxed">
+                      {result?.message || "Gambar yang Anda unggah bukan daun atau batang pisang. Silakan unggah foto yang sesuai."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4">
+                <h3 className="text-sm font-bold text-amber-800 mb-2 flex items-center gap-2">
+                  <Info className="w-4 h-4" /> Pastikan Gambar Anda:
+                </h3>
+                <ul className="space-y-1.5">
+                  {[
+                    "Merupakan foto daun atau batang pisang",
+                    "Terlihat jelas tanpa blur atau gelap",
+                    "Fokus pada bagian tanaman yang bergejala",
+                  ].map((tip, i) => (
+                    <li key={i} className="flex items-center gap-2 text-xs text-amber-700">
+                      <span className="w-1.5 h-1.5 bg-amber-400 rounded-full flex-shrink-0" />
+                      {tip}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setShowNotBananaPopup(false); setSelectedImage(null); resetFeedback(); }}
+                  className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-gradient-to-r from-green-600 to-emerald-700 text-white font-bold text-sm shadow-lg shadow-green-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Coba Gambar Lain
+                </button>
+                <button
+                  onClick={() => setShowNotBananaPopup(false)}
+                  className="w-14 flex items-center justify-center rounded-2xl border-2 border-gray-200 bg-white hover:bg-gray-50 text-gray-500 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Popup animations */}
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes scaleIn {
+          from { opacity: 0; transform: scale(0.85) translateY(20px); }
+          to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        @keyframes bounceIn {
+          from { opacity: 0; transform: scale(0.3); }
+          50% { transform: scale(1.05); }
+          to { opacity: 1; transform: scale(1); }
+        }
+      `}</style>
     </div>
   );
 }

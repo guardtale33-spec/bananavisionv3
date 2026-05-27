@@ -34,8 +34,9 @@ class AnalysisModel {
   }
 
   static async deleteAnalysis(id) {
-    return await prisma.analysis.delete({
+    return await prisma.analysis.update({
       where: { id },
+      data: { isDeleted: true, deletedAt: new Date() },
     });
   }
 }

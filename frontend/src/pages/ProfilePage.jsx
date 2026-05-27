@@ -16,16 +16,23 @@ import {
   AlertCircle,
   BellOff,
 } from "lucide-react";
-import { getAnalyses, updateProfile } from "../hooks/data";
+import {
+  getAnalyses,
+  getFeedbacksByUserId,
+  updateProfile,
+} from "../hooks/data";
 import { getToken } from "../utils/token";
 
 export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
   const [historyData, setHistoryData] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [feedbackData, setFeedbackData] = useState([]);
+  const [loadingFeedback, setLoadingFeedback] = useState(true);
+  const [feedbackError, setFeedbackError] = useState("");
   const [showEditModal, setShowEditModal] = useState(false);
   const [editName, setEditName] = useState(user?.name || "");
   const [editNotifications, setEditNotifications] = useState(
-    user?.notifications !== false
+    user?.notifications !== false,
   );
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -34,23 +41,38 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
   const modalRef = useRef(null);
 
   useEffect(() => {
-    const fetchHistory = async () => {
+    const fetchData = async () => {
       try {
         setLoadingHistory(true);
+        setLoadingFeedback(true);
+        setFeedbackError("");
+
         const token = getToken();
-        if (token) {
-          const data = await getAnalyses(token, { limit: 5 });
-          setHistoryData(Array.isArray(data) ? data : []);
+        if (!token) {
+          setHistoryData([]);
+          setFeedbackData([]);
+          return;
         }
+
+        const userId = user?.id || user?._id || user?.userId;
+        const [analyses, feedbacks] = await Promise.all([
+          getAnalyses(token, { limit: 5 }),
+          userId ? getFeedbacksByUserId(token, userId) : Promise.resolve([]),
+        ]);
+
+        setHistoryData(Array.isArray(analyses) ? analyses : []);
+        setFeedbackData(Array.isArray(feedbacks) ? feedbacks : []);
       } catch (err) {
-        console.error("Failed to fetch history:", err);
+        console.error("Failed to fetch profile history or feedback:", err);
         setHistoryData([]);
+        setFeedbackError("Gagal memuat feedback pengguna");
       } finally {
         setLoadingHistory(false);
+        setLoadingFeedback(false);
       }
     };
-    fetchHistory();
-  }, []);
+    fetchData();
+  }, [user]);
 
   // Sync edit fields when modal opens
   useEffect(() => {
@@ -118,15 +140,19 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
     return d.includes("healthy") || d.includes("sehat");
   };
 
-  const healthyCount = historyData.filter((h) => isHealthy(h.detectedDisease)).length;
+  const healthyCount = historyData.filter((h) =>
+    isHealthy(h.detectedDisease),
+  ).length;
   const diseaseCount = historyData.length - healthyCount;
   const avgConfidence =
     historyData.length > 0
       ? Math.round(
           historyData.reduce((s, h) => s + (h.confidence || 0), 0) /
-            historyData.length
+            historyData.length,
         )
       : 0;
+  const latestHistory = historyData.slice(0, 5);
+  const latestFeedback = feedbackData.slice(0, 5);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-green-50/30 to-emerald-50/20 pb-24">
@@ -142,7 +168,7 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
               src={
                 user?.avatar ||
                 `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                  user?.name || user?.email || "User"
+                  user?.name || user?.email || "User",
                 )}&background=ffffff&color=10b981&size=128&bold=true`
               }
               alt={user?.name || "User"}
@@ -174,21 +200,27 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
       <div className="max-w-4xl mx-auto px-4 -mt-8 sm:-mt-12 mb-6 relative z-10">
         <div className="bg-white/90 backdrop-blur-md rounded-2xl shadow-xl p-4 sm:p-5 grid grid-cols-3 gap-2 sm:gap-4 border border-white/50">
           <div className="text-center">
-            <div className="text-xl sm:text-2xl font-bold text-gray-800">{historyData.length}</div>
+            <div className="text-xl sm:text-2xl font-bold text-gray-800">
+              {historyData.length}
+            </div>
             <div className="text-[10px] sm:text-xs text-gray-500 mt-1 flex items-center justify-center gap-1">
               <Activity className="w-3 h-3 hidden sm:block" />
               Analisis
             </div>
           </div>
           <div className="text-center border-x border-gray-100">
-            <div className="text-xl sm:text-2xl font-bold text-green-600">{healthyCount}</div>
+            <div className="text-xl sm:text-2xl font-bold text-green-600">
+              {healthyCount}
+            </div>
             <div className="text-[10px] sm:text-xs text-gray-500 mt-1 flex items-center justify-center gap-1">
               <Leaf className="w-3 h-3 hidden sm:block" />
               Sehat
             </div>
           </div>
           <div className="text-center">
-            <div className="text-xl sm:text-2xl font-bold text-orange-500">{avgConfidence}%</div>
+            <div className="text-xl sm:text-2xl font-bold text-orange-500">
+              {avgConfidence}%
+            </div>
             <div className="text-[10px] sm:text-xs text-gray-500 mt-1 flex items-center justify-center gap-1">
               <CheckCircle className="w-3 h-3 hidden sm:block" />
               Akurasi
@@ -266,7 +298,9 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
                     key={i}
                     className="flex flex-col sm:flex-row sm:items-center justify-between py-3 border-b border-gray-50 last:border-0 gap-1 sm:gap-0"
                   >
-                    <span className="text-xs sm:text-sm text-gray-500">{item.label}</span>
+                    <span className="text-xs sm:text-sm text-gray-500">
+                      {item.label}
+                    </span>
                     <span className="text-sm font-bold text-gray-800 break-all sm:break-normal">
                       {item.value}
                     </span>
@@ -287,7 +321,9 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
                       <span className="text-gray-600">Daun Sehat</span>
                       <span className="font-semibold text-green-700">
                         {historyData.length > 0
-                          ? Math.round((healthyCount / historyData.length) * 100)
+                          ? Math.round(
+                              (healthyCount / historyData.length) * 100,
+                            )
                           : 0}
                         %
                       </span>
@@ -310,7 +346,9 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
                       <span className="text-gray-600">Terdeteksi Penyakit</span>
                       <span className="font-semibold text-red-600">
                         {historyData.length > 0
-                          ? Math.round((diseaseCount / historyData.length) * 100)
+                          ? Math.round(
+                              (diseaseCount / historyData.length) * 100,
+                            )
                           : 0}
                         %
                       </span>
@@ -336,9 +374,9 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
 
         {/* History Tab */}
         {activeTab === "history" && (
-          <div className="animate-fade-in bg-white rounded-2xl shadow-sm p-5">
+          <div className="animate-fade-in bg-white rounded-2xl shadow-sm p-5 overflow-y-auto">
             <h2 className="font-bold text-gray-800 mb-4">
-              Riwayat Analisis Terbaru
+              5 Riwayat Deteksi Terbaru
             </h2>
             {loadingHistory ? (
               <div className="space-y-3">
@@ -355,7 +393,9 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
             ) : historyData.length === 0 ? (
               <div className="text-center py-10">
                 <Leaf className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500 text-sm">Belum ada riwayat analisis</p>
+                <p className="text-gray-500 text-sm">
+                  Belum ada riwayat analisis
+                </p>
                 <button
                   onClick={() => goTo && goTo("analyze")}
                   className="mt-3 text-sm text-green-600 font-semibold hover:underline"
@@ -365,7 +405,7 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
               </div>
             ) : (
               <div className="space-y-3">
-                {historyData.map((h) => (
+                {latestHistory.map((h) => (
                   <div
                     key={h.id}
                     className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-2xl bg-white border border-gray-100 hover:shadow-md hover:border-green-100 transition-all cursor-pointer group"
@@ -380,18 +420,18 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
                           />
                         ) : (
                           <div
-                          className={`w-full h-full flex items-center justify-center ${
-                            isHealthy(h.detectedDisease)
-                              ? "bg-green-50"
-                              : "bg-red-50"
-                          }`}
-                        >
-                          {isHealthy(h.detectedDisease) ? (
-                            <CheckCircle className="w-8 h-8 text-green-500" />
-                          ) : (
-                            <AlertCircle className="w-8 h-8 text-red-400" />
-                          )}
-                        </div>
+                            className={`w-full h-full flex items-center justify-center ${
+                              isHealthy(h.detectedDisease)
+                                ? "bg-green-50"
+                                : "bg-red-50"
+                            }`}
+                          >
+                            {isHealthy(h.detectedDisease) ? (
+                              <CheckCircle className="w-8 h-8 text-green-500" />
+                            ) : (
+                              <AlertCircle className="w-8 h-8 text-red-400" />
+                            )}
+                          </div>
                         )}
                       </div>
                       <div className="flex-1 min-w-0 sm:hidden">
@@ -423,7 +463,7 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
                         {formatTime(h.createdAt)}
                       </div>
                     </div>
-                    
+
                     <div
                       className={`hidden sm:flex px-3 py-1.5 rounded-full text-sm font-bold shadow-sm ${
                         isHealthy(h.detectedDisease)
@@ -437,6 +477,65 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
                 ))}
               </div>
             )}
+
+            <div className="bg-white rounded-2xl shadow-sm p-5 mt-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="font-bold text-gray-800">
+                    5 Feedback Terbaru
+                  </h2>
+                  <p className="text-sm text-gray-500">
+                    Menampilkan 5 feedback terbaru dari riwayat Anda.
+                  </p>
+                </div>
+                <div className="text-xs text-gray-400">
+                  {Math.min(latestFeedback.length, 5)} dari{" "}
+                  {feedbackData.length} item
+                </div>
+              </div>
+
+              {loadingFeedback ? (
+                <div className="space-y-3">
+                  {[1, 2].map((item) => (
+                    <div
+                      key={item}
+                      className="h-20 rounded-2xl bg-gray-100 animate-pulse"
+                    />
+                  ))}
+                </div>
+              ) : feedbackError ? (
+                <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
+                  {feedbackError}
+                </div>
+              ) : feedbackData.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500">
+                  Belum ada feedback yang dikirim.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {latestFeedback.map((feedback) => (
+                    <div
+                      key={feedback.id}
+                      className="rounded-2xl border border-gray-100 bg-gray-50 p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">
+                            {feedback.message || "Tidak ada pesan"}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-2">
+                            {formatTime(feedback.createdAt)}
+                          </p>
+                        </div>
+                        <span className="px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 text-xs font-bold">
+                          {feedback.rating || 0}/5
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -483,15 +582,22 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
                     try {
                       const token = getToken();
                       await updateProfile(token, {
-                        notifications: user?.notifications === false,
+                        notifications: editNotifications,
                       });
-                      if (user) user.notifications = user?.notifications === false;
+                      if (setUser) {
+                        setUser((prev) => ({
+                          ...prev,
+                          notifications: editNotifications,
+                        }));
+                      }
                     } catch (e) {
                       console.error(e);
                     }
                   }}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    user?.notifications !== false ? "bg-green-500" : "bg-gray-300"
+                    user?.notifications !== false
+                      ? "bg-green-500"
+                      : "bg-gray-300"
                   }`}
                   role="switch"
                   aria-checked={user?.notifications !== false}
@@ -571,7 +677,7 @@ export default function ProfilePage({ user, setUser, handleLogout, goTo }) {
                   src={
                     user?.avatar ||
                     `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                      editName || user?.email || "User"
+                      editName || user?.email || "User",
                     )}&background=10b981&color=fff&size=128&bold=true`
                   }
                   alt="Preview"

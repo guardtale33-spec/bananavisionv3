@@ -1,11 +1,23 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
-  Search, Filter, Clock, AlertCircle, Trash2, Eye,
-  Leaf, CheckCircle, X, Shield, Activity, History,
+  Search,
+  Filter,
+  Clock,
+  AlertCircle,
+  Trash2,
+  Eye,
+  Leaf,
+  CheckCircle,
+  X,
+  Shield,
+  Activity,
+  History,
 } from "lucide-react";
 import { getAnalyses, deleteAnalysis } from "../hooks/data";
 import { getToken } from "../utils/token";
 import LoadingSpinner from "../components/LoadingSpinner";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { useToast } from "../hooks/useToast.jsx";
 
 export default function HistoryPage({ setCurrentPage }) {
   const [query, setQuery] = useState("");
@@ -15,14 +27,25 @@ export default function HistoryPage({ setCurrentPage }) {
   const [error, setError] = useState(null);
   const [selectedAnalysis, setSelectedAnalysis] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const pendingTimerRef = useRef(null);
+  const toast = useToast();
 
-  useEffect(() => { fetchHistory(); }, []);
+  useEffect(() => {
+    fetchHistory();
+  }, []);
 
   const fetchHistory = async () => {
     try {
       setLoading(true);
       const token = getToken();
-      if (!token) { setError("Silakan login terlebih dahulu"); setLoading(false); return; }
+      if (!token) {
+        setError("Silakan login terlebih dahulu");
+        setLoading(false);
+        return;
+      }
       const data = await getAnalyses(token, { limit: 50 });
       setHistoryData(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -32,26 +55,83 @@ export default function HistoryPage({ setCurrentPage }) {
     }
   };
 
-  const handleDelete = async (e, id) => {
+  const handleDelete = (e, id) => {
     e.stopPropagation();
-    if (!window.confirm("Hapus riwayat ini?")) return;
+    setConfirmTarget(id);
+    setConfirmOpen(true);
+  };
+
+  const finalizeDelete = async (id) => {
     try {
-      setDeletingId(id);
       const token = getToken();
       await deleteAnalysis(token, id);
-      setHistoryData(prev => prev.filter(item => item.id !== id));
-      if (selectedAnalysis?.id === id) setSelectedAnalysis(null);
-    } catch {
-      alert("Gagal menghapus riwayat analisis.");
+      toast.success("Riwayat benar-benar dihapus.");
+    } catch (err) {
+      // restore if API failed
+      if (pendingDelete?.id === id) {
+        setHistoryData((prev) => [pendingDelete, ...prev]);
+      }
+      toast.error("Gagal menghapus di server.");
     } finally {
+      setPendingDelete(null);
       setDeletingId(null);
+      pendingTimerRef.current = null;
+    }
+  };
+
+  const confirmDeleteNow = () => {
+    setConfirmOpen(false);
+    const id = confirmTarget;
+    const item = historyData.find((i) => i.id === id);
+    if (!item) {
+      setConfirmTarget(null);
+      return;
+    }
+
+    // optimistic remove
+    setHistoryData((prev) => prev.filter((i) => i.id !== id));
+    setPendingDelete(item);
+    setDeletingId(id);
+
+    // show undo toast with action
+    const undoAction = (
+      <div className="flex items-center justify-between gap-3">
+        <span>Riwayat dihapus</span>
+        <button
+          onClick={() => undoDelete(id)}
+          className="ml-4 text-sm font-bold text-green-600"
+        >
+          Undo
+        </button>
+      </div>
+    );
+    toast.showToast(undoAction, "info", 5000);
+
+    // delay actual API delete to allow undo
+    pendingTimerRef.current = setTimeout(() => finalizeDelete(id), 5000);
+    setConfirmTarget(null);
+  };
+
+  const undoDelete = (id) => {
+    if (pendingTimerRef.current) {
+      clearTimeout(pendingTimerRef.current);
+      pendingTimerRef.current = null;
+    }
+    if (pendingDelete && pendingDelete.id === id) {
+      setHistoryData((prev) => [pendingDelete, ...prev]);
+      setPendingDelete(null);
+      setDeletingId(null);
+      toast.info("Penghapusan dibatalkan");
     }
   };
 
   const formatTime = (dateString) =>
     new Date(dateString).toLocaleDateString("id-ID", {
-      day: "numeric", month: "short", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
 
   const isHealthy = (disease) => {
@@ -60,13 +140,17 @@ export default function HistoryPage({ setCurrentPage }) {
   };
 
   const filtered = historyData.filter((item) => {
-    const matchQuery = item.detectedDisease?.toLowerCase().includes(query.toLowerCase());
+    const matchQuery = item.detectedDisease
+      ?.toLowerCase()
+      .includes(query.toLowerCase());
     const status = isHealthy(item.detectedDisease) ? "healthy" : "warning";
     const matchFilter = filter === "all" || status === filter;
     return matchQuery && matchFilter;
   });
 
-  const healthyCount = historyData.filter(i => isHealthy(i.detectedDisease)).length;
+  const healthyCount = historyData.filter((i) =>
+    isHealthy(i.detectedDisease),
+  ).length;
   const diseaseCount = historyData.length - healthyCount;
 
   return (
@@ -83,7 +167,9 @@ export default function HistoryPage({ setCurrentPage }) {
               <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
                 <History className="w-5 h-5 text-white" />
               </div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-white">Riwayat Analisis</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold text-white">
+                Riwayat Analisis
+              </h1>
             </div>
             <p className="text-green-100 text-sm">
               Semua hasil deteksi tanaman pisang Anda tersimpan di sini
@@ -102,18 +188,42 @@ export default function HistoryPage({ setCurrentPage }) {
       <div className="max-w-5xl mx-auto px-4 -mt-8 mb-6 relative z-10">
         <div className="bg-white/90 backdrop-blur-md rounded-2xl shadow-sm border border-white/60 p-4 grid grid-cols-3 gap-2 sm:gap-4">
           {[
-            { icon: Activity, label: "Total", value: historyData.length, color: "text-blue-600", bg: "bg-blue-50" },
-            { icon: CheckCircle, label: "Sehat", value: healthyCount, color: "text-green-600", bg: "bg-green-50" },
-            { icon: AlertCircle, label: "Penyakit", value: diseaseCount, color: "text-red-500", bg: "bg-red-50" },
+            {
+              icon: Activity,
+              label: "Total",
+              value: historyData.length,
+              color: "text-blue-600",
+              bg: "bg-blue-50",
+            },
+            {
+              icon: CheckCircle,
+              label: "Sehat",
+              value: healthyCount,
+              color: "text-green-600",
+              bg: "bg-green-50",
+            },
+            {
+              icon: AlertCircle,
+              label: "Penyakit",
+              value: diseaseCount,
+              color: "text-red-500",
+              bg: "bg-red-50",
+            },
           ].map((s, i) => {
             const Icon = s.icon;
             return (
               <div key={i} className="text-center">
-                <div className={`w-8 h-8 ${s.bg} rounded-xl flex items-center justify-center mx-auto mb-1`}>
+                <div
+                  className={`w-8 h-8 ${s.bg} rounded-xl flex items-center justify-center mx-auto mb-1`}
+                >
                   <Icon className={`w-4 h-4 ${s.color}`} />
                 </div>
-                <div className="text-xl sm:text-2xl font-bold text-gray-800">{s.value}</div>
-                <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5">{s.label}</div>
+                <div className="text-xl sm:text-2xl font-bold text-gray-800">
+                  {s.value}
+                </div>
+                <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5">
+                  {s.label}
+                </div>
               </div>
             );
           })}
@@ -165,9 +275,13 @@ export default function HistoryPage({ setCurrentPage }) {
         ) : filtered.length === 0 ? (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
             <Leaf className="w-14 h-14 text-gray-200 mx-auto mb-4" />
-            <p className="text-gray-600 font-semibold mb-1">Belum ada hasil ditemukan</p>
+            <p className="text-gray-600 font-semibold mb-1">
+              Belum ada hasil ditemukan
+            </p>
             <p className="text-gray-400 text-sm mb-5">
-              {query ? `Tidak ada hasil untuk "${query}"` : "Mulai analisis pertama Anda sekarang."}
+              {query
+                ? `Tidak ada hasil untuk "${query}"`
+                : "Mulai analisis pertama Anda sekarang."}
             </p>
             <button
               onClick={() => setCurrentPage && setCurrentPage("analyze")}
@@ -178,7 +292,9 @@ export default function HistoryPage({ setCurrentPage }) {
           </div>
         ) : (
           <>
-            <p className="text-xs text-gray-400 mb-4">Menampilkan {filtered.length} hasil</p>
+            <p className="text-xs text-gray-400 mb-4">
+              Menampilkan {filtered.length} hasil
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {filtered.map((item) => {
                 const healthy = isHealthy(item.detectedDisease);
@@ -197,9 +313,13 @@ export default function HistoryPage({ setCurrentPage }) {
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         />
                       ) : (
-                        <div className={`w-full h-full flex items-center justify-center transition-colors ${
-                          healthy ? "bg-green-50/60 group-hover:bg-green-100/60" : "bg-red-50/60 group-hover:bg-red-100/60"
-                        }`}>
+                        <div
+                          className={`w-full h-full flex items-center justify-center transition-colors ${
+                            healthy
+                              ? "bg-green-50/60 group-hover:bg-green-100/60"
+                              : "bg-red-50/60 group-hover:bg-red-100/60"
+                          }`}
+                        >
                           {healthy ? (
                             <CheckCircle className="w-10 h-10 text-green-400" />
                           ) : (
@@ -208,9 +328,13 @@ export default function HistoryPage({ setCurrentPage }) {
                         </div>
                       )}
                       {/* Confidence Badge */}
-                      <div className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-xs font-bold shadow-sm backdrop-blur-md ${
-                        healthy ? "bg-green-500/90 text-white" : "bg-white/90 text-red-600 border border-red-100"
-                      }`}>
+                      <div
+                        className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-xs font-bold shadow-sm backdrop-blur-md ${
+                          healthy
+                            ? "bg-green-500/90 text-white"
+                            : "bg-white/90 text-red-600 border border-red-100"
+                        }`}
+                      >
                         {item.confidence?.toFixed(0)}%
                       </div>
                     </div>
@@ -228,7 +352,10 @@ export default function HistoryPage({ setCurrentPage }) {
                       {/* Actions */}
                       <div className="mt-auto pt-3 border-t border-gray-50 flex items-center gap-2">
                         <button
-                          onClick={(e) => { e.stopPropagation(); setSelectedAnalysis(item); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedAnalysis(item);
+                          }}
                           className="flex items-center gap-1.5 text-xs font-semibold text-green-600 hover:text-green-700 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-lg transition-colors"
                         >
                           <Eye className="w-3.5 h-3.5" /> Lihat
@@ -259,15 +386,19 @@ export default function HistoryPage({ setCurrentPage }) {
       {selectedAnalysis && (
         <div
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) setSelectedAnalysis(null); }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedAnalysis(null);
+          }}
         >
           <div className="bg-white w-full sm:max-w-lg sm:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden animate-slide-up flex flex-col max-h-[90vh]">
             {/* Modal Header */}
-            <div className={`flex-shrink-0 p-6 relative text-white ${
-              isHealthy(selectedAnalysis.detectedDisease)
-                ? "bg-gradient-to-br from-green-500 to-emerald-600"
-                : "bg-gradient-to-br from-red-500 to-rose-600"
-            }`}>
+            <div
+              className={`flex-shrink-0 p-6 relative text-white ${
+                isHealthy(selectedAnalysis.detectedDisease)
+                  ? "bg-gradient-to-br from-green-500 to-emerald-600"
+                  : "bg-gradient-to-br from-red-500 to-rose-600"
+              }`}
+            >
               <button
                 onClick={() => setSelectedAnalysis(null)}
                 className="absolute top-4 right-4 w-8 h-8 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center hover:bg-white/30 transition-colors"
@@ -286,7 +417,9 @@ export default function HistoryPage({ setCurrentPage }) {
                   <div className="inline-flex bg-white/20 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider mb-1">
                     {selectedAnalysis.confidence?.toFixed(0)}% Akurasi
                   </div>
-                  <h2 className="text-xl font-bold leading-tight">{selectedAnalysis.detectedDisease}</h2>
+                  <h2 className="text-xl font-bold leading-tight">
+                    {selectedAnalysis.detectedDisease}
+                  </h2>
                   <div className="text-white/80 text-xs flex items-center gap-1 mt-1.5">
                     <Clock className="w-3.5 h-3.5" />
                     {formatTime(selectedAnalysis.createdAt)}
@@ -299,24 +432,34 @@ export default function HistoryPage({ setCurrentPage }) {
             <div className="overflow-y-auto hide-scrollbar p-5 space-y-4 flex-1">
               {selectedAnalysis.imageUrl && (
                 <div className="rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 max-h-56 flex justify-center">
-                  <img src={selectedAnalysis.imageUrl} alt="Daun pisang" className="max-w-full h-auto object-contain" />
+                  <img
+                    src={selectedAnalysis.imageUrl}
+                    alt="Daun pisang"
+                    className="max-w-full h-auto object-contain"
+                  />
                 </div>
               )}
 
               {selectedAnalysis.predictions?.length > 0 && (
                 <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Detail Prediksi AI</h4>
+                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
+                    Detail Prediksi AI
+                  </h4>
                   <div className="space-y-2.5">
                     {selectedAnalysis.predictions.slice(0, 3).map((pred, i) => (
                       <div key={i} className="flex items-center gap-3 text-sm">
-                        <span className="text-gray-700 font-medium truncate flex-1">{pred.disease}</span>
+                        <span className="text-gray-700 font-medium truncate flex-1">
+                          {pred.disease}
+                        </span>
                         <div className="w-20 h-1.5 bg-gray-200 rounded-full overflow-hidden">
                           <div
                             className={`h-full rounded-full ${i === 0 ? (isHealthy(pred.disease) ? "bg-green-500" : "bg-red-500") : "bg-gray-400"}`}
                             style={{ width: `${pred.confidence}%` }}
                           />
                         </div>
-                        <span className="text-gray-500 text-xs font-bold w-8 text-right">{pred.confidence?.toFixed(0)}%</span>
+                        <span className="text-gray-500 text-xs font-bold w-8 text-right">
+                          {pred.confidence?.toFixed(0)}%
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -328,7 +471,8 @@ export default function HistoryPage({ setCurrentPage }) {
                   <Shield className="w-3.5 h-3.5" /> Catatan Analisis
                 </h4>
                 <p className="text-sm text-blue-900 leading-relaxed">
-                  {selectedAnalysis.notes || "Jika terdeteksi penyakit, segera pisahkan tanaman yang terdampak dan konsultasikan dengan ahli pertanian setempat untuk penanganan lebih lanjut."}
+                  {selectedAnalysis.notes ||
+                    "Jika terdeteksi penyakit, segera pisahkan tanaman yang terdampak dan konsultasikan dengan ahli pertanian setempat untuk penanganan lebih lanjut."}
                 </p>
               </div>
             </div>
@@ -336,7 +480,12 @@ export default function HistoryPage({ setCurrentPage }) {
             {/* Modal Footer */}
             <div className="p-4 border-t border-gray-100 flex gap-3 bg-gray-50/50">
               <button
-                onClick={(e) => handleDelete(e, selectedAnalysis.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmTarget(selectedAnalysis.id);
+                  setConfirmOpen(true);
+                  setSelectedAnalysis(null);
+                }}
                 className="px-4 py-2.5 rounded-xl text-red-600 font-semibold text-sm hover:bg-red-50 flex items-center gap-2 transition-colors"
               >
                 <Trash2 className="w-4 h-4" /> Hapus
@@ -351,6 +500,19 @@ export default function HistoryPage({ setCurrentPage }) {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Hapus Riwayat"
+        description="Anda yakin ingin menghapus riwayat ini? Anda memiliki beberapa detik untuk membatalkan."
+        onCancel={() => {
+          setConfirmOpen(false);
+          setConfirmTarget(null);
+        }}
+        onConfirm={confirmDeleteNow}
+        confirmText="Hapus"
+        cancelText="Batal"
+      />
     </div>
   );
 }

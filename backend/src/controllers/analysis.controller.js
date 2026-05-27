@@ -4,6 +4,7 @@ const { successResponse, errorResponse } = require("../utils/response");
 class AnalysisController {
   static async analyzeImage(req, res) {
     try {
+
       const userId = req.user.id;
       const { imageBase64, notes } = req.body;
 
@@ -32,6 +33,7 @@ class AnalysisController {
       return errorResponse(res, "gagal membuat analisis", 500);
     }
   }
+  
   static async getAnalysisById(req, res) {
     try {
       const { id } = req.params;
@@ -41,6 +43,7 @@ class AnalysisController {
       return errorResponse(res, "gagal mengambil hasil analisis", 404);
     }
   }
+
   static async getAnalysesByUserId(req, res) {
     try {
       const { userId } = req.params;

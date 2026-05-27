@@ -6,7 +6,7 @@ class FeedbackController {
     try {
       const data = { ...req.body, userId: req.user.id };
       const feedback = await feedbackService.createFeedback(data);
-      successResponse(res, feedback, "berhasil membuat feedback", 201);
+      return successResponse(res, feedback, "berhasil membuat feedback", 201);
     } catch (error) {
       errorResponse(res, "gagal membuat feedback", 500, error.message);
     }
@@ -15,7 +15,7 @@ class FeedbackController {
   static async getAllFeedbacks(req, res) {
     try {
       const feedbacks = await feedbackService.getFeedbacks();
-      successResponse(res, feedbacks, "berhasil mengambil semua feedback");
+      return successResponse(res, feedbacks, "berhasil mengambil semua feedback");
     } catch (error) {
       errorResponse(res, "gagal mengambil semua feedback", 500, error.message);
     }
@@ -24,7 +24,7 @@ class FeedbackController {
   static async getFeedbacksByUserId(req, res) {
     try {
       const feedbacks = await feedbackService.getFeedbacksByUserId(req.params.userId);
-      successResponse(res, feedbacks, "berhasil mengambil feedback berdasarkan userId", 200);
+      return successResponse(res, feedbacks, "berhasil mengambil feedback berdasarkan userId", 200);
     } catch (error) {
       errorResponse(res, "gagal mengambil feedback berdasarkan userId", 500, error.message);
     }
@@ -36,7 +36,7 @@ class FeedbackController {
       if (!feedback) {
         return errorResponse(res, "feedback tidak ditemukan", 404);
       }
-      successResponse(res, feedback, "berhasil memperbarui feedback", 200);
+      return successResponse(res, feedback, "berhasil memperbarui feedback", 200);
     } catch (error) {
       errorResponse(res, "gagal memperbarui feedback", 500, error.message);
     }
@@ -48,7 +48,7 @@ class FeedbackController {
       if (!feedback) {
         return errorResponse(res, "feedback tidak ditemukan", 404);
       }
-      successResponse(res, null, "berhasil menghapus feedback", 200);
+      return successResponse(res, null, "berhasil menghapus feedback", 200);
     } catch (error) {
       errorResponse(res, "gagal menghapus feedback", 500, error.message);
     }

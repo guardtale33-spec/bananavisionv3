@@ -18,17 +18,28 @@ const authApi = require("./src/routes/auth.routes");
 const analysisApi = require("./src/routes/analysis.routes");
 const diseaseApi = require("./src/routes/disease.routes");
 const feedbackApi = require("./src/routes/feedback.routes");
-const statisticApi = require("./src/routes/statistic.routes");
 
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(express.json({ limit: "10mb" }));
 
 // CORS harus SEBELUM helmet untuk Firebase
+const defaultOrigins = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:3000",
+];
+const productionFallbackOrigins = ["https://bananavision.vercel.app"];
+
 const allowedOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",")
       .map((origin) => origin.trim())
       .filter(Boolean)
-  : ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"];
+  : [
+      ...defaultOrigins,
+      ...(process.env.NODE_ENV === "production"
+        ? productionFallbackOrigins
+        : []),
+    ];
 
 const corsOptions = {
   origin: (origin, callback) => {
@@ -44,7 +55,6 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Helmet dengan konfigurasi yang compatible dengan Firebase Auth
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -97,7 +107,31 @@ const limiter = rateLimit({
   legacyHeaders: false,
 });
 
-app.use(limiter);
+// General limiter applied to most routes
+const generalLimiter = limiter;
+
+// A lighter/shorter limiter for auth routes to avoid locking out users
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 20, // allow more frequent short bursts for auth in development/normal use
+  message: {
+    code: 429,
+    success: false,
+    message:
+      "Terlalu banyak permintaan pada endpoint auth, silakan coba lagi nanti.",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply authLimiter only to auth routes
+app.use("/api/auth", authLimiter);
+
+// Apply general limiter to all other routes (skip auth to avoid blocking login flows)
+app.use((req, res, next) => {
+  if (req.originalUrl && req.originalUrl.startsWith("/api/auth")) return next();
+  return generalLimiter(req, res, next);
+});
 
 if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
@@ -151,7 +185,6 @@ app.use("/api/auth", authApi);
 app.use("/api/analyses", analysisApi);
 app.use("/api/diseases", diseaseApi);
 app.use("/api/feedbacks", feedbackApi);
-app.use("/api/statistics", statisticApi);
 
 // 404 handler
 app.use((req, res, next) => {

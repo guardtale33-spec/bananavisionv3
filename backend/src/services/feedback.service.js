@@ -19,10 +19,6 @@ class FeedbackService {
     }
   }
 
-  // static async getFeedbackById(id) {
-  //   return await FeedbackModel.getFeedbackById(id);
-  // }
-
   static async getFeedbacksByUserId(userId) {
     try {
       return await FeedbackModel.getFeedbacksByUserId(userId);

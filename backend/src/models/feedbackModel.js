@@ -13,12 +13,6 @@ class FeedbackModel {
     });
   }
 
-  // static async getFeedbackById(id) {
-  //   return await prisma.feedback.findUnique({
-  //     where: { id },
-  //   });
-  // }
-
   static async getFeedbacksByUserId(userId) {
     return await prisma.feedback.findMany({
       where: { userId },
