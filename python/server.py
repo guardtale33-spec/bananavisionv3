@@ -121,9 +121,8 @@ PLANT_KEYWORDS = {
 
 # Minimum cumulative probability (%) across top-10 plant-related
 # predictions to consider the image as containing a banana/plant.
-# Lowered to 3.0 to be more permissive for real banana leaf images
-# which can be misclassified by ImageNet as other plant-related classes.
-PLANT_GATE_THRESHOLD = 3.0
+# Lowered to 1.5 to be more permissive for close-up leaf textures.
+PLANT_GATE_THRESHOLD = 1
 
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
@@ -223,9 +222,9 @@ def check_is_banana_plant(img) -> dict:
 # ─────────────────────────────────────────────────────────────────
 
 # Jika gatekeeper menolak tapi disease model yakin di atas threshold ini,
-# percayai disease model. Turunkan nilai ini jika daun sakit masih sering
-# tertolak (misal: 50.0). Naikkan untuk lebih ketat (misal: 70.0).
-DISEASE_OVERRIDE_THRESHOLD = 60.0  # %
+# percayai disease model. Diturunkan ke 35.0 agar daun sehat / tekstur daun
+# close-up tidak tertolak karena 7-class model memiliki baseline acak 14%.
+DISEASE_OVERRIDE_THRESHOLD = 35.0  # %
 
 
 def run_prediction(image_data) -> dict:
