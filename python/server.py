@@ -325,7 +325,10 @@ async def predict(request: PredictionRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Prediction failed: {str(e)}')
+        import traceback
+        tb = traceback.format_exc()
+        print(f"❌ Prediction error:\n{tb}")
+        raise HTTPException(status_code=500, detail=f'Prediction failed: {str(e)}\nTraceback:\n{tb}')
 
 
 @app.post("/api/predict-file", response_model=PredictionResponse)
@@ -361,8 +364,10 @@ async def predict_file(file: UploadFile = File(...)):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ predict_file error: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=500, detail=f'Prediction failed: {str(e)}')
+        import traceback
+        tb = traceback.format_exc()
+        print(f"❌ predict_file error:\n{tb}")
+        raise HTTPException(status_code=500, detail=f'Prediction failed: {str(e)}\nTraceback:\n{tb}')
     finally:
         # Always close the upload file to free resources
         await file.close()
