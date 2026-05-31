@@ -59,7 +59,11 @@ class AnalysisService {
 
       return { ...analysis, isBanana: true };
     } catch (error) {
-      console.error("ML Server Error:", error.message);
+      if (error.response?.data) {
+        console.error("ML Server Error Details:", JSON.stringify(error.response.data, null, 2));
+      } else {
+        console.error("ML Server Error:", error.message);
+      }
 
       // If ML server is unavailable, create analysis with error status
       if (
