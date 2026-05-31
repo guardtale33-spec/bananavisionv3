@@ -315,7 +315,7 @@ export default function AnalyzePage({
                             <span className="text-xs bg-white/20 text-white px-2.5 py-0.5 rounded-full font-semibold">{result.category}</span>
                           )}
                         </div>
-                        {result.severity !== "error" && (
+                        {result.severity !== "error" && result.severity !== "not_banana" && (
                           <div className="flex items-center gap-2">
                             <div className="flex-1 bg-white/30 h-2 rounded-full overflow-hidden">
                               <div className="h-full bg-white rounded-full transition-all duration-700" style={{ width: `${result.confidence}%` }} />
@@ -331,6 +331,43 @@ export default function AnalyzePage({
                   <div className={`bg-gradient-to-br ${cfg.cardBg} p-5 space-y-4`}>
                     {result.severity === "error" ? (
                       <div className="bg-white/80 rounded-xl p-4 text-red-700 text-sm">{result.message}</div>
+                    ) : result.severity === "not_banana" ? (
+                      /* ── NOT BANANA: pesan khusus, bukan rekomendasi penyakit ── */
+                      <>
+                        <div className="bg-white/80 rounded-xl p-4">
+                          <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                              <Ban className="w-4 h-4 text-red-600" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-gray-800 mb-1">Gambar Tidak Dikenali</p>
+                              <p className="text-xs text-gray-500 leading-relaxed">
+                                Sistem tidak mendeteksi daun atau batang pohon pisang pada gambar ini.
+                                Silakan unggah foto yang menampilkan bagian tanaman pisang secara jelas.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="bg-amber-50/80 rounded-xl p-4 border border-amber-100">
+                          <h3 className="text-sm font-bold text-amber-800 mb-2.5 flex items-center gap-2">
+                            <Info className="w-4 h-4" /> Tips agar gambar berhasil dikenali:
+                          </h3>
+                          <ul className="space-y-1.5">
+                            {[
+                              "Pastikan gambar menampilkan daun atau batang pohon pisang",
+                              "Ambil foto dari jarak 20–30 cm dengan pencahayaan cukup",
+                              "Hindari objek lain yang mendominasi frame (tanah, langit, dll.)",
+                              "Gunakan foto fokus tajam, hindari blur atau gelap",
+                            ].map((tip, i) => (
+                              <li key={i} className="flex items-start gap-2 text-xs text-amber-700">
+                                <span className="w-1.5 h-1.5 bg-amber-400 rounded-full flex-shrink-0 mt-1.5" />
+                                {tip}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </>
                     ) : (
                       <>
                         {result.severity !== "healthy" && (
@@ -410,7 +447,7 @@ export default function AnalyzePage({
 
                   {/* Footer */}
                   <div className="px-5 py-4 bg-white flex items-center justify-between gap-3 border-t border-gray-100">
-                    {result.severity !== "error" && (
+                    {result.severity !== "error" && result.severity !== "not_banana" && (
                       <button onClick={() => setCurrentPage("diseases")}
                         className="text-sm text-green-700 font-semibold hover:text-green-800 flex items-center gap-1">
                         Lihat katalog <ChevronRight className="w-4 h-4" />
@@ -419,7 +456,7 @@ export default function AnalyzePage({
                     <button onClick={() => { setSelectedImage(null); resetFeedback(); }}
                       className="ml-auto flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-xl text-sm font-bold text-gray-700 transition-all">
                       <RefreshCw className="w-4 h-4" />
-                      {result.severity === "error" ? "Coba Lagi" : "Analisis Baru"}
+                      {result.severity === "error" || result.severity === "not_banana" ? "Coba Gambar Lain" : "Analisis Baru"}
                     </button>
                   </div>
                 </div>
