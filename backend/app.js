@@ -55,36 +55,6 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Ensure preflight (OPTIONS) requests are handled with the same CORS options
-app.options("*", cors(corsOptions));
-
-// Fallback middleware to always set CORS headers for requests.
-// This helps ensure the browser receives Access-Control-* headers
-// even when some intermediate middleware might short-circuit the response.
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-
-  // If origin is present and allowed, echo it back; otherwise allow '*' for non-browser requests
-  if (
-    origin &&
-    (allowedOrigins.includes(origin) || !process.env.CORS_ORIGINS)
-  ) {
-    res.header("Access-Control-Allow-Origin", origin);
-  } else if (!origin) {
-    res.header("Access-Control-Allow-Origin", "*");
-  }
-
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Requested-With",
-  );
-
-  if (req.method === "OPTIONS") return res.sendStatus(204);
-  next();
-});
-
 app.use(
   helmet({
     contentSecurityPolicy: {
