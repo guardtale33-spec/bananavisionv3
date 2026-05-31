@@ -5,6 +5,7 @@ const DEFAULT_BASE_URL = "https://bananavisionv3-production.up.railway.app/api";
 // Module-level flag agar warning hanya muncul sekali
 let _warnedMissingUrl = false;
 
+
 const BASE_URL = rawBaseUrl
   ? rawBaseUrl.replace(/\/+$/, "")
   : (() => {
