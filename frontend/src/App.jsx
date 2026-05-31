@@ -206,6 +206,7 @@ const InnerApp = () => {
                     setSelectedImage={setSelectedImage}
                     analyzing={analyzing}
                     result={result}
+                    setResult={setResult}
                     handleImageSelect={handleImageSelect}
                     handleAnalyze={handleAnalyze}
                     setCurrentPage={goTo}
