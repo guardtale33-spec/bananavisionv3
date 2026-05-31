@@ -21,7 +21,7 @@ import SplashScreen from "./components/SplashScreen";
 import InstallPrompt from "./components/InstallPrompt";
 import OfflineIndicator from "./components/OfflineIndicator";
 import { getToken, saveToken, removeToken } from "./utils/token";
-import { getUserProfile, analyzeImage } from "./hooks/data";
+import { getUserProfile, analyzeImage, handleGoogleRedirectResult } from "./hooks/data";
 
 const InnerApp = () => {
   const navigate = useNavigate();
@@ -75,6 +75,17 @@ const InnerApp = () => {
           console.error("Failed to fetch user:", err);
           
           handleLogout();
+        });
+    } else {
+      // Check if user has just returned from Google sign-in redirect
+      handleGoogleRedirectResult()
+        .then((result) => {
+          if (result) {
+            handleLogin({ user: result.user, token: result.token });
+          }
+        })
+        .catch((err) => {
+          console.error("❌ Redirect login error:", err);
         });
     }
   }, []);

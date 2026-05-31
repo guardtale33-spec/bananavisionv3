@@ -1,6 +1,12 @@
 // firebaseClient.js
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+} from "firebase/auth";
 
 let authInstance = null;
 
@@ -34,6 +40,23 @@ export async function loginWithGooglePopup() {
   const auth = initFirebase();
   const provider = new GoogleAuthProvider();
 
+  // Detect mobile device
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent
+  );
+
+  if (isMobile) {
+    console.log("📱 Mobile device detected. Using signInWithRedirect...");
+    try {
+      await signInWithRedirect(auth, provider);
+      // Return a promise that never resolves since the browser is redirecting
+      return new Promise(() => {});
+    } catch (err) {
+      console.error("Redirect initialization failed:", err);
+      throw new Error(err.message || "Google redirect login gagal");
+    }
+  }
+
   try {
     const result = await signInWithPopup(auth, provider);
 
@@ -58,3 +81,19 @@ export async function loginWithGooglePopup() {
     throw new Error(err.message || "Google login gagal");
   }
 }
+
+export async function getRedirectAuthResult() {
+  const auth = initFirebase();
+  try {
+    const result = await getRedirectResult(auth);
+    if (result && result.user) {
+      const idToken = await result.user.getIdToken();
+      return idToken;
+    }
+    return null;
+  } catch (err) {
+    console.error("Error in getRedirectResult:", err);
+    throw err;
+  }
+}
+
