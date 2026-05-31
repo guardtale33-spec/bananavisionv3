@@ -93,20 +93,37 @@ DISEASE_MAP = {
 # with cumulative score >= PLANT_GATE_THRESHOLD, we allow the image.
 # ─────────────────────────────────────────────────────────────────
 PLANT_KEYWORDS = {
-    'banana', 'plantain', 'leaf', 'plant', 'garden', 'greenhouse',
-    'pot', 'flower', 'herb', 'grass', 'tree', 'palm', 'frond',
-    'vegetation', 'jungle', 'rainforest', 'tropical',
+    # Direct banana/plantain keywords
+    'banana', 'plantain',
+    # General leaf/plant terms
+    'leaf', 'leaves', 'plant', 'plants', 'foliage', 'frond', 'fronds',
+    # Garden/outdoor vegetation
+    'garden', 'greenhouse', 'pot', 'flower', 'herb', 'grass', 'tree',
+    'palm', 'vegetation', 'jungle', 'rainforest', 'tropical', 'shrub',
+    'bush', 'thicket', 'undergrowth', 'canopy', 'bough', 'twig', 'stem',
+    'stalk', 'branch', 'trunk', 'bark', 'wood', 'bole',
+    # Fungi/nature (common misclassifications of diseased leaves)
     'acorn', 'mushroom', 'fungus', 'ear', 'corn', 'seed',
-    'hay', 'straw', 'hedge', 'lawn', 'meadow',
+    'hay', 'straw', 'hedge', 'lawn', 'meadow', 'rapeseed',
+    # Vegetables/fruits (tropical misclassifications)
     'head_cabbage', 'broccoli', 'cauliflower', 'zucchini', 'cucumber',
     'artichoke', 'cardoon', 'bell_pepper', 'fig', 'pineapple',
     'jackfruit', 'custard_apple', 'pomegranate', 'lemon', 'orange',
-    'strawberry', 'rapeseed', 'daisy', 'sunflower',
+    'strawberry', 'daisy', 'sunflower', 'cabbage', 'lettuce', 'spinach',
+    'bok_choy', 'kohlrabi', 'spaghetti_squash', 'acorn_squash',
+    # Common ImageNet labels for plant-like textures
+    'pot_plant', 'house_plant', 'gyromitra', 'agaric', 'earthstar',
+    'bolete', 'coral_fungus', 'hen_of_the_woods', 'earthball', 'dung',
+    # Outdoor / nature scenes that might contain banana plants
+    'valley', 'cliff', 'alp', 'lakeside', 'promontory', 'seashore',
+    'marsh', 'mangrove',
 }
 
 # Minimum cumulative probability (%) across top-10 plant-related
-# predictions to consider the image as containing a banana/plant
-PLANT_GATE_THRESHOLD = 5.0
+# predictions to consider the image as containing a banana/plant.
+# Lowered to 3.0 to be more permissive for real banana leaf images
+# which can be misclassified by ImageNet as other plant-related classes.
+PLANT_GATE_THRESHOLD = 3.0
 
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
@@ -204,18 +221,52 @@ def check_is_banana_plant(img) -> dict:
 # ─────────────────────────────────────────────────────────────────
 # Main prediction pipeline
 # ─────────────────────────────────────────────────────────────────
+
+# Jika gatekeeper menolak tapi disease model yakin di atas threshold ini,
+# percayai disease model. Turunkan nilai ini jika daun sakit masih sering
+# tertolak (misal: 50.0). Naikkan untuk lebih ketat (misal: 70.0).
+DISEASE_OVERRIDE_THRESHOLD = 60.0  # %
+
+
 def run_prediction(image_data) -> dict:
     """
-    Two-stage prediction pipeline:
-      1. ImageNet gatekeeper — reject non-plant images
-      2. Disease classifier  — classify banana disease
+    Two-pass prediction pipeline:
+
+      Pass 1 — ImageNet gatekeeper:
+        Cek apakah gambar mengandung tanaman/pisang berdasarkan top-10
+        prediksi ImageNet. Hasilnya bersifat 'advisory', bukan hard-reject.
+
+      Pass 2 — Disease classifier (SELALU dijalankan):
+        Klasifikasi penyakit pisang oleh model khusus yang dilatih pada
+        dataset daun/batang pisang — termasuk kondisi sakit parah.
+
+      Override logic:
+        Daun pisang yang sakit (Moko, Yellow/Black Sigatoka, dll.) dapat
+        berubah warna drastis — coklat mengering atau kuning pucat —
+        sehingga ImageNet tidak mengenalinya sebagai tanaman.
+        Jika gatekeeper menolak TAPI disease model sangat yakin
+        (confidence >= DISEASE_OVERRIDE_THRESHOLD), percayai disease model.
+        Tolak HANYA jika kedua model sama-sama tidak yakin.
     """
     img = open_image(image_data)
 
-    # ── Step 1: Gatekeeper — is this actually a banana plant image? ──
+    # ── Pass 1: Gatekeeper ──────────────────────────────────────────
     gate_result = check_is_banana_plant(img)
 
-    if not gate_result['is_plant']:
+    # ── Pass 2: Disease model (selalu dijalankan) ───────────────────
+    image_array = preprocess_for_disease(img)
+    predictions = disease_model.predict(image_array, verbose=0)
+    confidence_scores = predictions[0]
+    predicted_class = int(np.argmax(confidence_scores))
+    confidence = float(confidence_scores[predicted_class]) * 100
+
+    # ── Keputusan akhir ─────────────────────────────────────────────
+    # Tolak hanya jika gatekeeper menolak DAN disease model ragu-ragu.
+    if not gate_result['is_plant'] and confidence < DISEASE_OVERRIDE_THRESHOLD:
+        print(
+            f"[Gatekeeper] REJECTED — plant_score={gate_result['plant_score']:.1f}%, "
+            f"disease_conf={confidence:.1f}% < {DISEASE_OVERRIDE_THRESHOLD}%"
+        )
         return {
             'is_banana': False,
             'detectedDisease': 'Bukan Daun/Batang Pisang',
@@ -229,12 +280,13 @@ def run_prediction(image_data) -> dict:
             'predictions': []
         }
 
-    # ── Step 2: Run the disease classification model ──
-    image_array = preprocess_for_disease(img)
-    predictions = disease_model.predict(image_array, verbose=0)
-    confidence_scores = predictions[0]
-    predicted_class = int(np.argmax(confidence_scores))
-    confidence = float(confidence_scores[predicted_class]) * 100
+    if not gate_result['is_plant']:
+        # Gatekeeper ragu, tapi disease model cukup yakin → override
+        print(
+            f"[Gatekeeper] OVERRIDE — plant_score={gate_result['plant_score']:.1f}%, "
+            f"disease_conf={confidence:.1f}% >= {DISEASE_OVERRIDE_THRESHOLD}% "
+            f"→ trusting disease model (likely diseased/dried/yellowed leaf)"
+        )
 
     disease_info = DISEASE_MAP.get(predicted_class, {
         'name': 'Unknown',
@@ -280,20 +332,29 @@ async def predict(request: PredictionRequest):
 @app.post("/api/predict-file", response_model=PredictionResponse)
 async def predict_file(file: UploadFile = File(...)):
     """ML prediction endpoint with file upload"""
+    contents = None
     try:
         # Validate file type
-        if file.content_type not in ALLOWED_CONTENT_TYPES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Tipe file tidak didukung: {file.content_type}. Gunakan JPG, PNG, atau WEBP."
-            )
+        content_type = file.content_type or ""
+        # Accept even if content_type is missing/wrong by trying to open as image
+        if content_type and content_type not in ALLOWED_CONTENT_TYPES:
+            # Allow if content_type starts with image/ (e.g. image/heic)
+            if not content_type.startswith("image/"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Tipe file tidak didukung: {content_type}. Gunakan JPG, PNG, atau WEBP."
+                )
 
         # Read and open image
         contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=400, detail="File kosong atau tidak dapat dibaca")
+
         try:
             img = Image.open(io.BytesIO(contents))
-        except Exception:
-            raise HTTPException(status_code=400, detail="File gambar tidak dapat dibaca")
+            img.load()  # Force full decode to catch corrupt images early
+        except Exception as img_err:
+            raise HTTPException(status_code=400, detail=f"File gambar tidak dapat dibaca: {str(img_err)}")
 
         result = run_prediction(img)
         return PredictionResponse(success=True, data=result)
@@ -301,7 +362,11 @@ async def predict_file(file: UploadFile = File(...)):
     except HTTPException:
         raise
     except Exception as e:
+        print(f"❌ predict_file error: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=f'Prediction failed: {str(e)}')
+    finally:
+        # Always close the upload file to free resources
+        await file.close()
 
 
 @app.get("/health")

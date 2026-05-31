@@ -9,7 +9,7 @@ import { getToken } from "../utils/token";
 import { submitFeedback } from "../hooks/data";
 
 export default function AnalyzePage({
-  selectedImage, setSelectedImage, analyzing, result,
+  selectedImage, setSelectedImage, analyzing, result, setResult,
   handleImageSelect, handleAnalyze, setCurrentPage,
 }) {
   const fileInputRef = useRef(null);
@@ -71,13 +71,28 @@ export default function AnalyzePage({
     e.preventDefault(); setDragOver(false);
     const file = e.dataTransfer?.files?.[0];
     if (file?.type.startsWith("image/")) {
+      // Reset hasil analisis sebelumnya agar tidak muncul saat upload ulang
+      if (setResult) setResult(null);
+      setFeedbackSubmitted(false);
+      setFeedbackRating(0);
+      setFeedbackText("");
+      setHoverStar(0);
+      setShowNotBananaPopup(false);
       const reader = new FileReader();
-      reader.onloadend = () => { setSelectedImage(reader.result); resetFeedback(); };
+      reader.onloadend = () => { setSelectedImage(reader.result); };
       reader.readAsDataURL(file);
     }
   };
 
-  const resetFeedback = () => { setFeedbackSubmitted(false); setFeedbackRating(0); setFeedbackText(""); setHoverStar(0); setShowNotBananaPopup(false); };
+  const resetFeedback = () => {
+    setFeedbackSubmitted(false);
+    setFeedbackRating(0);
+    setFeedbackText("");
+    setHoverStar(0);
+    setShowNotBananaPopup(false);
+    // Juga bersihkan hasil analisis lama agar tidak muncul saat upload ulang
+    if (setResult) setResult(null);
+  };
   const handleSelectImageWrapper = (e) => { handleImageSelect(e); resetFeedback(); };
   const handleCameraClick = () => { if (cameraInputRef.current) { cameraInputRef.current.value = ""; cameraInputRef.current.click(); } };
 
