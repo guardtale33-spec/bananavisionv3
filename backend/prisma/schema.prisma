@@ -56,6 +56,7 @@ model Analysis {
   updatedAt        DateTime  @updatedAt  
   
   isDeleted        Boolean   @default(false)
+  deletedAt        DateTime?
   
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   disease          Disease?  @relation(fields: [diseaseId], references: [id])
