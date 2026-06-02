@@ -13,9 +13,20 @@ let authInstance = null;
 function initFirebase() {
   if (authInstance) return authInstance;
 
+  // Di mobile/Safari, third-party cookies diblokir.
+  // Gunakan domain hosting sendiri (Vercel) sebagai authDomain jika di production.
+  const isProduction = import.meta.env.PROD;
+  const currentHost = window.location.hostname;
+  const isIPAddress = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(currentHost);
+  const isLocal = currentHost.includes("localhost") || currentHost.includes("127.0.0.1") || isIPAddress;
+
+  const authDomain = (isProduction && currentHost && !isLocal)
+    ? currentHost
+    : import.meta.env.VITE_FIREBASE_AUTH_DOMAIN;
+
   const config = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    authDomain: authDomain,
     projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
     appId: import.meta.env.VITE_FIREBASE_APP_ID,
   };
