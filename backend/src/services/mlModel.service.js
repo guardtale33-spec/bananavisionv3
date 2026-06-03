@@ -31,13 +31,23 @@ class MlModelService {
       // 2. Retrieve all models from DB (source of truth)
       const dbModels = await MlModelModel.findAll();
 
-      // 3. Sync active status from Python into DB (only if Python is reachable and model exists in DB)
-      if (activePyModel && activePyModel.filename) {
-        const activeDbModel = dbModels.find(m => m.filename === activePyModel.filename);
-        if (activeDbModel && !activeDbModel.isActive) {
-          await MlModelModel.update(activeDbModel.id, { isActive: true });
-          await MlModelModel.deactivateAllExcept(activeDbModel.id);
-          return await MlModelModel.findAll();
+      // 3. Sync active status from Python into DB (only if Python is reachable)
+      if (activePyModel) {
+        if (activePyModel.filename) {
+          const activeDbModel = dbModels.find(m => m.filename === activePyModel.filename);
+          if (activeDbModel && !activeDbModel.isActive) {
+            await MlModelModel.update(activeDbModel.id, { isActive: true });
+            await MlModelModel.deactivateAllExcept(activeDbModel.id);
+            return await MlModelModel.findAll();
+          }
+        } else {
+          // Python is online but explicitly has NO active model loaded (filename is null)
+          // Deactivate all models in DB to match
+          const activeDbModel = dbModels.find(m => m.isActive);
+          if (activeDbModel) {
+            await MlModelModel.deactivateAllExcept(null);
+            return await MlModelModel.findAll();
+          }
         }
       }
 
@@ -168,6 +178,14 @@ class MlModelService {
         message: err.message
       };
     }
+  }
+
+  /**
+   * Get the currently active model from DB
+   */
+  static async getActiveModel() {
+    const models = await MlModelModel.findAll();
+    return models.find(m => m.isActive) || null;
   }
 }
 
