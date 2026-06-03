@@ -206,7 +206,24 @@ async function main() {
       console.log(`Created disease: ${disease.name}`);
     }
 
-    console.log("Disease seeding completed successfully!");
+    // Seed default admin
+    console.log("Starting admin seeding...");
+    await prisma.admin.deleteMany({});
+    
+    const bcrypt = require("bcryptjs");
+    const hashedPassword = await bcrypt.hash("admin123", 10);
+    
+    await prisma.admin.create({
+      data: {
+        email: "admin@bananavision.com",
+        password: hashedPassword,
+        name: "Super Admin",
+        role: "admin"
+      }
+    });
+    console.log("Default admin created: admin@bananavision.com / admin123");
+
+    console.log("Seeding completed successfully!");
   } catch (error) {
     console.error("Seeding error:", error);
     process.exit(1);

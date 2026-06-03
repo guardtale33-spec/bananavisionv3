@@ -3,7 +3,7 @@ const DiseaseModel = require("../models/diseaseModel");
 const axios = require("axios");
 
 const ML_SERVER_URL = (
-  process.env.ML_SERVER_URL || "http://localhost:5001"
+  process.env.ML_SERVER_URL || "http://localhost:8000"
 ).replace(/\/$/, "");
 
 class AnalysisService {
@@ -123,12 +123,14 @@ class AnalysisService {
       // Fetch all analyses without pagination for accurate stats
       const analyses = await AnalysisModel.getAnalysesByUserId(userId);
 
-      const totalAnalyses = analyses.length;
+      // Hanya hitung analisis yang berhasil (bukan yang gagal karena ML server down)
+      const completedAnalyses = analyses.filter((a) => a.status === "completed");
+      const totalAnalyses = completedAnalyses.length;
       let healthyCount = 0;
       let totalConfidence = 0;
       let diseaseCount = 0;
 
-      analyses.forEach((analysis) => {
+      completedAnalyses.forEach((analysis) => {
         const isHealthy =
           analysis.detectedDisease?.toLowerCase() === "healthy" ||
           analysis.detectedDisease?.toLowerCase() === "sehat" ||

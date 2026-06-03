@@ -21,7 +21,14 @@ import SplashScreen from "./components/SplashScreen";
 import InstallPrompt from "./components/InstallPrompt";
 import OfflineIndicator from "./components/OfflineIndicator";
 import { getToken, saveToken, removeToken } from "./utils/token";
-import { getUserProfile, analyzeImage, handleGoogleRedirectResult } from "./hooks/data";
+import { getUserProfile, analyzeImage, handleGoogleRedirectResult, getAdminProfile } from "./hooks/data";
+
+// Admin Imports
+import AdminLoginPage from "./pages/admin/AdminLoginPage";
+import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
+import AdminDiseasesPage from "./pages/admin/AdminDiseasesPage";
+import AdminModelsPage from "./pages/admin/AdminModelsPage";
+import AdminLayout from "./components/admin/AdminLayout";
 
 const InnerApp = () => {
   const navigate = useNavigate();
@@ -34,6 +41,14 @@ const InnerApp = () => {
   const [result, setResult] = useState(null);
   const [token, setToken] = useState(false);
   const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true); // Cegah flash redirect saat refresh
+
+  // Admin States
+  const [adminToken, setAdminToken] = useState(() => {
+    const token = localStorage.getItem("adminToken");
+    return token && token !== "undefined" && token !== "null" ? token : null;
+  });
+  const [admin, setAdmin] = useState(null);
 
   const pathMap = {
     home: "/",
@@ -63,6 +78,12 @@ const InnerApp = () => {
   };
 
   useEffect(() => {
+    // Skip user auth logic entirely when on admin routes
+    if (location.pathname.startsWith("/admin")) {
+      setAuthLoading(false);
+      return;
+    }
+
     const storedToken = getToken();
     if (storedToken) {
       setToken(true);
@@ -73,8 +94,12 @@ const InnerApp = () => {
         })
         .catch((err) => {
           console.error("Failed to fetch user:", err);
-          
-          handleLogout();
+          removeToken();
+          setUser(null);
+          setToken(false);
+        })
+        .finally(() => {
+          setAuthLoading(false);
         });
     } else {
       // Check if user has just returned from Google sign-in redirect
@@ -86,6 +111,9 @@ const InnerApp = () => {
         })
         .catch((err) => {
           console.error("❌ Redirect login error:", err);
+        })
+        .finally(() => {
+          setAuthLoading(false);
         });
     }
   }, []);
@@ -95,6 +123,34 @@ const InnerApp = () => {
     setUser(user);
     setToken(true);
     navigate("/");
+  };
+
+  // Admin profile loader
+  useEffect(() => {
+    if (adminToken) {
+      getAdminProfile(adminToken)
+        .then((adminData) => {
+          setAdmin(adminData);
+        })
+        .catch((err) => {
+          console.error("Failed to fetch admin:", err);
+          handleAdminLogout();
+        });
+    }
+  }, [adminToken]);
+
+  const handleAdminLogin = (data) => {
+    localStorage.setItem("adminToken", data.token);
+    setAdminToken(data.token);
+    setAdmin(data.admin);
+    navigate("/admin");
+  };
+
+  const handleAdminLogout = () => {
+    localStorage.removeItem("adminToken");
+    setAdminToken(null);
+    setAdmin(null);
+    navigate("/admin/login");
   };
 
   const handleImageSelect = (e) => {
@@ -181,70 +237,163 @@ const InnerApp = () => {
     setSidebarOpen(false);
   };
 
+  const isAdminRoute = location.pathname.startsWith("/admin");
+
+  // Tampilkan spinner saat auth sedang dicek (cegah flash redirect)
+  const LoadingFallback = () => (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Always show Navigation */}
-      <Navigation
-        user={token !== false ? user : null}
-        currentPage={currentPage}
-        setCurrentPage={goTo}
-        sidebarOpen={sidebarOpen}
-        setSidebarOpen={setSidebarOpen}
-        handleLogout={handleLogout}
-      />
+      {/* Conditionally show Navigation header only for public/user routes */}
+      {!isAdminRoute && (
+        <Navigation
+          user={token !== false ? user : null}
+          currentPage={currentPage}
+          setCurrentPage={goTo}
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
+          handleLogout={handleLogout}
+        />
+      )}
 
-      {token === false && (
-        <div className="pt-16">
-          <Routes>
-            <Route path="/login" element={<LoginPage handleLogin={handleLogin} setCurrentPage={goTo} />} />
-            <Route path="/" element={<HomePage setCurrentPage={goTo} />} />
-            <Route path="/diseases" element={<DiseasesPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </div>
-      )}
-      {token !== false && (
-        <>
-          <div className="pt-16 transition-all duration-300">
-            <Routes>
-              <Route path="/" element={<HomePage goTo={goTo} />} />
-              <Route path="/dashboard" element={<DashboardPage setCurrentPage={goTo} user={user} />} />
-              <Route
-                path="/analyze"
-                element={
-                  <AnalyzePage
-                    selectedImage={selectedImage}
-                    setSelectedImage={setSelectedImage}
-                    analyzing={analyzing}
-                    result={result}
-                    setResult={setResult}
-                    handleImageSelect={handleImageSelect}
-                    handleAnalyze={handleAnalyze}
-                    setCurrentPage={goTo}
-                  />
-                }
+      <Routes>
+        {/* Public User Routes */}
+        <Route path="/" element={<HomePage goTo={goTo} />} />
+        <Route path="/diseases" element={<DiseasesPage />} />
+        <Route 
+          path="/login" 
+          element={
+            token !== false ? (
+              <Navigate to="/dashboard" replace />
+            ) : (
+              <LoginPage handleLogin={handleLogin} setCurrentPage={goTo} />
+            )
+          } 
+        />
+
+        {/* Protected User Routes — tampilkan loading saat auth sedang dicek */}
+        <Route 
+          path="/dashboard" 
+          element={
+            authLoading ? <LoadingFallback /> :
+            token !== false ? (
+              <DashboardPage setCurrentPage={goTo} user={user} />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          } 
+        />
+        <Route
+          path="/analyze"
+          element={
+            authLoading ? <LoadingFallback /> :
+            token !== false ? (
+              <AnalyzePage
+                selectedImage={selectedImage}
+                setSelectedImage={setSelectedImage}
+                analyzing={analyzing}
+                result={result}
+                setResult={setResult}
+                handleImageSelect={handleImageSelect}
+                handleAnalyze={handleAnalyze}
+                setCurrentPage={goTo}
               />
-              <Route path="/history" element={<HistoryPage setCurrentPage={goTo} />} />
-              <Route path="/diseases" element={<DiseasesPage />} />
-              <Route
-                path="/profile"
-                element={
-                  <ProfilePage
-                    user={user}
-                    setUser={setUser}
-                    goTo={goTo}
-                    handleLogout={handleLogout}
-                  />
-                }
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route 
+          path="/history" 
+          element={
+            authLoading ? <LoadingFallback /> :
+            token !== false ? (
+              <HistoryPage setCurrentPage={goTo} />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          } 
+        />
+        <Route
+          path="/profile"
+          element={
+            authLoading ? <LoadingFallback /> :
+            token !== false ? (
+              <ProfilePage
+                user={user}
+                setUser={setUser}
+                goTo={goTo}
+                handleLogout={handleLogout}
               />
-              <Route path="/login" element={<LoginPage setCurrentPage={goTo} />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </div>
-        </>
-      )}
-      <InstallPrompt />
-      <OfflineIndicator />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+
+        {/* Admin Login Route */}
+        <Route
+          path="/admin/login"
+          element={
+            adminToken ? (
+              <Navigate to="/admin" replace />
+            ) : (
+              <AdminLoginPage
+                handleAdminLogin={handleAdminLogin}
+                onBackToUser={() => navigate("/")}
+              />
+            )
+          }
+        />
+
+        {/* Protected Admin Routes */}
+        <Route
+          path="/admin"
+          element={
+            adminToken ? (
+              <AdminLayout admin={admin} handleAdminLogout={handleAdminLogout}>
+                <AdminDashboardPage token={adminToken} />
+              </AdminLayout>
+            ) : (
+              <Navigate to="/admin/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/admin/diseases"
+          element={
+            adminToken ? (
+              <AdminLayout admin={admin} handleAdminLogout={handleAdminLogout}>
+                <AdminDiseasesPage token={adminToken} />
+              </AdminLayout>
+            ) : (
+              <Navigate to="/admin/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/admin/models"
+          element={
+            adminToken ? (
+              <AdminLayout admin={admin} handleAdminLogout={handleAdminLogout}>
+                <AdminModelsPage token={adminToken} />
+              </AdminLayout>
+            ) : (
+              <Navigate to="/admin/login" replace />
+            )
+          }
+        />
+
+        {/* Catch-all Redirect */}
+        <Route path="*" element={<Navigate to={isAdminRoute ? "/admin" : "/"} replace />} />
+      </Routes>
+
+      {!isAdminRoute && <InstallPrompt />}
+      {!isAdminRoute && <OfflineIndicator />}
     </div>
   );
 };
