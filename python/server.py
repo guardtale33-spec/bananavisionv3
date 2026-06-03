@@ -75,7 +75,7 @@ async def load_model():
 
     # Gunakan filename aktif jika dimuat dari JSON config, jika tidak gunakan path default
     model_path = os.path.join(MODEL_DIR, ACTIVE_FILENAME) if ACTIVE_FILENAME else _cfg["path"]
-    
+
     # Auto-download active model on startup if it doesn't exist locally and URL is available
     if ACTIVE_FILENAME and not os.path.exists(model_path) and ACTIVE_URL:
         import urllib.request
@@ -86,14 +86,18 @@ async def load_model():
             print("✅ Startup download complete!")
             model_path = os.path.join(MODEL_DIR, ACTIVE_FILENAME)
         except Exception as e:
-            print(f"⚠️ Failed to download active model on startup: {e}. Falling back to default.")
+            print(f"⚠️ Failed to download active model on startup: {e}. Will try default path.")
             model_path = _cfg["path"]
-    
+
+    # If model file still doesn't exist, start in standby mode instead of crashing
     if not os.path.exists(model_path):
-        raise FileNotFoundError(
-            f"Model file tidak ditemukan: {model_path}. "
-            f"Pastikan file model ada di folder python/"
+        print(
+            f"⚠️  Model file tidak ditemukan: {model_path}. "
+            f"Server berjalan dalam mode STANDBY — unggah dan aktifkan model melalui panel admin."
         )
+        disease_model = None
+        imagenet_model = None
+        return
 
     print(f"🔄 Loading disease model ({MODEL_TYPE}): {os.path.basename(model_path)}")
     disease_model = tf.keras.models.load_model(model_path)
@@ -256,6 +260,11 @@ DISEASE_OVERRIDE_THRESHOLD = 35.0  # %
 
 
 def run_prediction(image_data) -> dict:
+    if disease_model is None or imagenet_model is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Server AI berjalan dalam mode STANDBY. Tidak ada model aktif. Silakan unggah dan aktifkan model melalui panel admin."
+        )
     """
     Two-pass prediction pipeline:
 
