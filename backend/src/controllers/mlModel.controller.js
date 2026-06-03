@@ -64,7 +64,26 @@ class MlModelController {
         fileSize
       );
 
-      return successResponse(res, registered, "Model berhasil diunggah dan didaftarkan", 201);
+      // Auto-activate if no model is currently active
+      let autoActivated = false;
+      try {
+        const currentActive = await MlModelService.getActiveModel();
+        if (!currentActive) {
+          console.log(`🤖 No active model found — auto-activating '${filename}'...`);
+          await MlModelService.activateModel(registered.id);
+          autoActivated = true;
+          console.log(`✅ Auto-activated: ${filename}`);
+        }
+      } catch (activateErr) {
+        // Non-fatal: auto-activation failed (e.g. Python server not reachable), model still registered
+        console.warn(`⚠️ Auto-activation failed (non-fatal): ${activateErr.message}`);
+      }
+
+      const message = autoActivated
+        ? "Model berhasil diunggah dan otomatis diaktifkan"
+        : "Model berhasil diunggah dan didaftarkan";
+
+      return successResponse(res, registered, message, 201);
     } catch (error) {
       console.error("Error upload model:", error.message);
       return errorResponse(res, error.message || "Gagal mengunggah model", 500);
@@ -89,6 +108,30 @@ class MlModelController {
     } catch (error) {
       console.error("Error check AI server health:", error.message);
       return errorResponse(res, error.message || "Gagal mengecek status server AI", 500);
+    }
+  }
+
+  // Public endpoint — no auth — called by Python server on startup to auto-recover active model
+  static async getActiveModelInfo(req, res) {
+    try {
+      const activeModel = await MlModelService.getActiveModel();
+      if (!activeModel) {
+        return successResponse(res, null, "Tidak ada model aktif");
+      }
+      const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
+      const supabaseBucket = process.env.SUPABASE_BUCKET || "models";
+      const url = supabaseUrl
+        ? `${supabaseUrl}/storage/v1/object/public/${supabaseBucket}/${activeModel.filename}`
+        : null;
+
+      return successResponse(res, {
+        filename: activeModel.filename,
+        modelType: activeModel.modelType,
+        url,
+      }, "Model aktif ditemukan");
+    } catch (error) {
+      console.error("Error getActiveModelInfo:", error.message);
+      return errorResponse(res, error.message || "Gagal mengambil info model aktif", 500);
     }
   }
 }

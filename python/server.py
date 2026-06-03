@@ -23,6 +23,9 @@ app = FastAPI(title="BananaVision API", description="AI-powered banana disease d
 MODEL_DIR = os.path.dirname(__file__)
 ACTIVE_MODEL_JSON = os.path.join(MODEL_DIR, "active_model.json")
 
+# Node.js backend URL — Python server queries this on startup to auto-recover the active model
+NODE_BACKEND_URL = os.environ.get("NODE_BACKEND_URL", "https://bananavisionv3-production.up.railway.app/api").rstrip("/")
+
 MODEL_CONFIG = {
     "mobilenetv2": {
         "path": os.path.join(MODEL_DIR, "model_mobilenetv2_final.keras"),
@@ -71,41 +74,76 @@ imagenet_model = None
 
 @app.on_event("startup")
 async def load_model():
-    global disease_model, imagenet_model
+    global disease_model, imagenet_model, MODEL_TYPE, ACTIVE_FILENAME, ACTIVE_URL, _cfg
 
     # Gunakan filename aktif jika dimuat dari JSON config, jika tidak gunakan path default
     model_path = os.path.join(MODEL_DIR, ACTIVE_FILENAME) if ACTIVE_FILENAME else _cfg["path"]
 
-    # Auto-download active model on startup if it doesn't exist locally and URL is available
+    # Attempt 1: Auto-download if we already have the URL from active_model.json
     if ACTIVE_FILENAME and not os.path.exists(model_path) and ACTIVE_URL:
         import urllib.request
-        print(f"📥 Downloading active model on startup from {ACTIVE_URL} to {model_path}...")
+        print(f"\U0001f4e5 Downloading active model from saved URL: {ACTIVE_URL}...")
         try:
             os.makedirs(os.path.dirname(model_path), exist_ok=True)
             urllib.request.urlretrieve(ACTIVE_URL, model_path)
-            print("✅ Startup download complete!")
-            model_path = os.path.join(MODEL_DIR, ACTIVE_FILENAME)
+            print("\u2705 Startup download complete!")
         except Exception as e:
-            print(f"⚠️ Failed to download active model on startup: {e}. Will try default path.")
+            print(f"\u26a0\ufe0f Failed to download from saved URL: {e}")
             model_path = _cfg["path"]
+
+    # Attempt 2: Query Node.js backend for the active model info (handles Railway restart)
+    if not os.path.exists(model_path):
+        print(f"\U0001f4e1 Querying Node.js backend for active model info: {NODE_BACKEND_URL}/admin/models/active-info")
+        try:
+            import urllib.request as urlreq
+            with urlreq.urlopen(f"{NODE_BACKEND_URL}/admin/models/active-info", timeout=15) as resp:
+                data = json.loads(resp.read())
+                model_info = data.get("data")
+                if model_info and model_info.get("filename") and model_info.get("url"):
+                    node_filename = model_info["filename"]
+                    node_url = model_info["url"]
+                    node_type = model_info.get("modelType", "mobilenetv2").lower()
+                    print(f"\U0001f4e5 Auto-downloading active model from backend: {node_filename} @ {node_url}")
+                    target_path = os.path.join(MODEL_DIR, node_filename)
+                    urlreq.urlretrieve(node_url, target_path)
+                    print("\u2705 Auto-download complete!")
+                    # Update globals
+                    ACTIVE_FILENAME = node_filename
+                    ACTIVE_URL = node_url
+                    if node_type in MODEL_CONFIG:
+                        MODEL_TYPE = node_type
+                    _cfg = MODEL_CONFIG.get(MODEL_TYPE, MODEL_CONFIG["mobilenetv2"])
+                    model_path = target_path
+                    # Save active_model.json for future restarts
+                    with open(ACTIVE_MODEL_JSON, "w") as f:
+                        json.dump({"model_type": MODEL_TYPE, "filename": ACTIVE_FILENAME, "url": ACTIVE_URL}, f)
+                else:
+                    print("\u2139\ufe0f Node.js backend reports no active model.")
+        except Exception as e:
+            print(f"\u26a0\ufe0f Could not fetch active model from Node backend: {e}")
 
     # If model file still doesn't exist, start in standby mode instead of crashing
     if not os.path.exists(model_path):
         print(
-            f"⚠️  Model file tidak ditemukan: {model_path}. "
-            f"Server berjalan dalam mode STANDBY — unggah dan aktifkan model melalui panel admin."
+            f"\u26a0\ufe0f  No model file found. "
+            f"Server berjalan dalam mode STANDBY \u2014 unggah dan aktifkan model melalui panel admin."
         )
         disease_model = None
         imagenet_model = None
         return
 
-    print(f"🔄 Loading disease model ({MODEL_TYPE}): {os.path.basename(model_path)}")
+    print(f"\U0001f504 Loading disease model ({MODEL_TYPE}): {os.path.basename(model_path)}")
     disease_model = tf.keras.models.load_model(model_path)
-    print(f"✅ Disease model loaded: {MODEL_TYPE}")
+    print(f"\u2705 Disease model loaded: {MODEL_TYPE}")
 
-    print(f"🔄 Loading ImageNet gatekeeper ({MODEL_TYPE})...")
-    imagenet_model = _cfg["imagenet_loader"]()
-    print(f"✅ ImageNet gatekeeper loaded: {MODEL_TYPE}")
+    try:
+        print(f"\U0001f504 Loading ImageNet gatekeeper ({MODEL_TYPE})...")
+        imagenet_model = _cfg["imagenet_loader"]()
+        print(f"\u2705 ImageNet gatekeeper loaded: {MODEL_TYPE}")
+    except Exception as e:
+        print(f"\u26a0\ufe0f ImageNet gatekeeper failed (non-fatal): {e}")
+        imagenet_model = None
+
 
 
 # Disease mapping
@@ -511,8 +549,8 @@ async def list_available_models():
             "success": True,
             "models": model_files,
             "active_model": {
-                "filename": ACTIVE_FILENAME or "model_mobilenetv2_final.keras",
-                "model_type": MODEL_TYPE
+                "filename": ACTIVE_FILENAME if disease_model is not None else None,
+                "model_type": MODEL_TYPE if disease_model is not None else None
             }
         }
     except Exception as e:

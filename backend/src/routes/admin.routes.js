@@ -62,4 +62,7 @@ router.post(
 router.put("/models/:id/activate", authenticateAdmin, MlModelController.activateModel);
 router.delete("/models/:id", authenticateAdmin, MlModelController.deleteModel);
 
+// Public endpoint — no auth required — used by Python server on startup to auto-recover
+router.get("/models/active-info", MlModelController.getActiveModelInfo);
+
 module.exports = router;
