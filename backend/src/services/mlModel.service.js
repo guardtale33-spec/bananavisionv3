@@ -94,16 +94,25 @@ class MlModelService {
     }
 
     const modelPath = path.join(PYTHON_MODEL_DIR, model.filename);
-    if (!fs.existsSync(modelPath)) {
+    const isSupabaseConfigured = !!(process.env.SUPABASE_URL && process.env.SUPABASE_KEY);
+    if (!isSupabaseConfigured && !fs.existsSync(modelPath)) {
       throw new Error(`File model '${model.filename}' tidak ditemukan di folder python/ server`);
     }
 
     // 1. Tell Python server to reload model
     try {
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const supabaseBucket = process.env.SUPABASE_BUCKET || "models";
+      let downloadUrl = null;
+      if (supabaseUrl) {
+        downloadUrl = `${supabaseUrl.replace(/\/$/, "")}/storage/v1/object/public/${supabaseBucket}/${model.filename}`;
+      }
+
       console.log(`Sending reload request to ${ML_SERVER_URL}/api/reload for ${model.filename}...`);
       const response = await axios.post(`${ML_SERVER_URL}/api/reload`, {
         filename: model.filename,
-        model_type: model.modelType === "custom" ? "mobilenetv2" : model.modelType // default to mobilenetv2 preprocess for custom
+        model_type: model.modelType === "custom" ? "mobilenetv2" : model.modelType, // default to mobilenetv2 preprocess for custom
+        url: downloadUrl
       });
 
       if (!response.data || !response.data.success) {
