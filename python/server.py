@@ -45,6 +45,7 @@ MODEL_CONFIG = {
 # Determine default model type and path on startup
 MODEL_TYPE = os.environ.get("MODEL_TYPE", "mobilenetv2").lower().strip()
 ACTIVE_FILENAME = None
+ACTIVE_URL = None
 
 import json
 if os.path.exists(ACTIVE_MODEL_JSON):
@@ -53,6 +54,7 @@ if os.path.exists(ACTIVE_MODEL_JSON):
             active_cfg = json.load(f)
             MODEL_TYPE = active_cfg.get("model_type", "mobilenetv2").lower().strip()
             ACTIVE_FILENAME = active_cfg.get("filename", None)
+            ACTIVE_URL = active_cfg.get("url", None)
             print(f"📖 Loaded active model config from JSON: {ACTIVE_FILENAME} ({MODEL_TYPE})")
     except Exception as e:
         print(f"⚠️ Failed to read active_model.json: {e}. Using defaults/env.")
@@ -72,7 +74,20 @@ async def load_model():
     global disease_model, imagenet_model
 
     # Gunakan filename aktif jika dimuat dari JSON config, jika tidak gunakan path default
-    model_path = os.path.join(MODEL_DIR, ACTIVE_FILENAME) if (ACTIVE_FILENAME and os.path.exists(os.path.join(MODEL_DIR, ACTIVE_FILENAME))) else _cfg["path"]
+    model_path = os.path.join(MODEL_DIR, ACTIVE_FILENAME) if ACTIVE_FILENAME else _cfg["path"]
+    
+    # Auto-download active model on startup if it doesn't exist locally and URL is available
+    if ACTIVE_FILENAME and not os.path.exists(model_path) and ACTIVE_URL:
+        import urllib.request
+        print(f"📥 Downloading active model on startup from {ACTIVE_URL} to {model_path}...")
+        try:
+            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            urllib.request.urlretrieve(ACTIVE_URL, model_path)
+            print("✅ Startup download complete!")
+            model_path = os.path.join(MODEL_DIR, ACTIVE_FILENAME)
+        except Exception as e:
+            print(f"⚠️ Failed to download active model on startup: {e}. Falling back to default.")
+            model_path = _cfg["path"]
     
     if not os.path.exists(model_path):
         raise FileNotFoundError(
@@ -407,6 +422,7 @@ async def root():
 class ReloadRequest(BaseModel):
     filename: str
     model_type: str  # "mobilenetv2" or "resnet50"
+    url: Optional[str] = None  # Optional Supabase URL
 
 @app.post("/api/reload")
 async def reload_model(request: ReloadRequest):
@@ -418,7 +434,17 @@ async def reload_model(request: ReloadRequest):
         
     model_path = os.path.join(MODEL_DIR, request.filename)
     if not os.path.exists(model_path):
-        raise HTTPException(status_code=404, detail=f"File model '{request.filename}' tidak ditemukan di folder python/")
+        if request.url:
+            import urllib.request
+            print(f"📥 Downloading model from {request.url} to {model_path}...")
+            try:
+                os.makedirs(os.path.dirname(model_path), exist_ok=True)
+                urllib.request.urlretrieve(request.url, model_path)
+                print("✅ Download complete!")
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Gagal mendownload model dari Cloud Storage: {str(e)}")
+        else:
+            raise HTTPException(status_code=404, detail=f"File model '{request.filename}' tidak ditemukan di folder python/")
         
     try:
         print(f"🔄 Reloading disease model to {request.filename} ({model_type})...")
@@ -439,7 +465,8 @@ async def reload_model(request: ReloadRequest):
         with open(ACTIVE_MODEL_JSON, "w") as f:
             json.dump({
                 "model_type": model_type,
-                "filename": request.filename
+                "filename": request.filename,
+                "url": request.url
             }, f)
         
         print(f"✅ Success! Reloaded model: {request.filename}")

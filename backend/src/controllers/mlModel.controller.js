@@ -1,5 +1,7 @@
 const MlModelService = require("../services/mlModel.service");
 const { successResponse, errorResponse } = require("../utils/response");
+const { uploadToSupabase } = require("../utils/supabaseStorage");
+const fs = require("fs");
 
 class MlModelController {
   static async getModels(req, res) {
@@ -31,11 +33,29 @@ class MlModelController {
 
       const { name, modelType } = req.body;
       if (!name || !modelType) {
+        if (fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
         return errorResponse(res, "Field name dan modelType wajib diisi", 400);
       }
 
       const filename = req.file.filename;
       const fileSize = req.file.size;
+
+      // Upload to Supabase if configured
+      let uploadUrl = null;
+      try {
+        uploadUrl = await uploadToSupabase(req.file.path, filename);
+        // Clean up local temp file
+        if (uploadUrl && fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+      } catch (uploadErr) {
+        if (fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+        throw uploadErr;
+      }
 
       const registered = await MlModelService.registerUploadedModel(
         name,
