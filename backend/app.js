@@ -18,6 +18,7 @@ const authApi = require("./src/routes/auth.routes");
 const analysisApi = require("./src/routes/analysis.routes");
 const diseaseApi = require("./src/routes/disease.routes");
 const feedbackApi = require("./src/routes/feedback.routes");
+const adminApi = require("./src/routes/admin.routes");
 
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(express.json({ limit: "10mb" }));
@@ -129,7 +130,7 @@ app.use("/api/auth", authLimiter);
 
 // Apply general limiter to all other routes (skip auth to avoid blocking login flows)
 app.use((req, res, next) => {
-  if (req.originalUrl && req.originalUrl.startsWith("/api/auth")) return next();
+  if (req.originalUrl && (req.originalUrl.startsWith("/api/auth") || req.originalUrl.startsWith("/api/admin/login"))) return next();
   return generalLimiter(req, res, next);
 });
 
@@ -185,6 +186,7 @@ app.use("/api/auth", authApi);
 app.use("/api/analyses", analysisApi);
 app.use("/api/diseases", diseaseApi);
 app.use("/api/feedbacks", feedbackApi);
+app.use("/api/admin", adminApi);
 
 // 404 handler
 app.use((req, res, next) => {

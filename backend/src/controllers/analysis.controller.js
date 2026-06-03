@@ -38,6 +38,12 @@ class AnalysisController {
     try {
       const { id } = req.params;
       const analysis = await AnalysisService.getAnalysisById(id);
+
+      // Pastikan analisis milik user yang sedang login
+      if (!analysis || analysis.userId !== req.user.id) {
+        return errorResponse(res, "Analisis tidak ditemukan", 404);
+      }
+
       return successResponse(res, analysis, "hasil analisis berhasil diambil");
     } catch (error) {
       return errorResponse(res, "gagal mengambil hasil analisis", 404);
@@ -57,6 +63,13 @@ class AnalysisController {
   static async deleteAnalysis(req, res) {
     try {
       const { id } = req.params;
+
+      // Verifikasi kepemilikan sebelum hapus
+      const analysis = await AnalysisService.getAnalysisById(id);
+      if (!analysis || analysis.userId !== req.user.id) {
+        return errorResponse(res, "Analisis tidak ditemukan", 404);
+      }
+
       const deletedAnalysis = await AnalysisService.deleteAnalysis(id);
       return successResponse(res, deletedAnalysis, "analisis berhasil dihapus");
     } catch (error) {

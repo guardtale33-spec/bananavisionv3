@@ -11,6 +11,13 @@ export const API_ENDPOINTS = {
   DASHBOARD_TRENDS: `${BASE_URL}/analyses/dashboard/trends`,
   DISEASES: `${BASE_URL}/diseases`,
   FEEDBACK: `${BASE_URL}/feedbacks`,
+  
+  // Admin Endpoints
+  ADMIN_LOGIN: `${BASE_URL}/admin/login`,
+  ADMIN_PROFILE: `${BASE_URL}/admin/profile`,
+  ADMIN_STATS: `${BASE_URL}/admin/stats`,
+  ADMIN_DISEASES: `${BASE_URL}/admin/diseases`,
+  ADMIN_MODELS: `${BASE_URL}/admin/models`,
 };
 
 /**
@@ -305,7 +312,7 @@ export const getDashboardTrends = async (token, period = "7d") => {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
-        },
+         },
       },
     );
 
@@ -398,6 +405,280 @@ export const submitFeedback = async (token, message, rating) => {
     return data.data;
   } catch (err) {
     console.error("❌ Failed to submit feedback:", err);
+    throw err;
+  }
+};
+
+// ==========================================
+// ADMIN API FUNCTIONS
+// ==========================================
+
+export const adminLogin = async (email, password) => {
+  try {
+    const response = await fetch(API_ENDPOINTS.ADMIN_LOGIN, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Gagal masuk sebagai admin");
+    }
+    return data.data; // contains admin object and token
+  } catch (err) {
+    console.error("❌ Admin login error:", err);
+    throw err;
+  }
+};
+
+export const getAdminProfile = async (token) => {
+  try {
+    const response = await fetch(API_ENDPOINTS.ADMIN_PROFILE, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Gagal memuat profil admin");
+    }
+    return data.data;
+  } catch (err) {
+    console.error("❌ getAdminProfile error:", err);
+    throw err;
+  }
+};
+
+export const getAdminStats = async (token) => {
+  try {
+    const response = await fetch(API_ENDPOINTS.ADMIN_STATS, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Gagal memuat statistik admin");
+    }
+    return data.data;
+  } catch (err) {
+    console.error("❌ getAdminStats error:", err);
+    throw err;
+  }
+};
+
+export const getAdminDiseases = async (token) => {
+  try {
+    const response = await fetch(API_ENDPOINTS.ADMIN_DISEASES, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Gagal memuat penyakit admin");
+    }
+    return data.data;
+  } catch (err) {
+    console.error("❌ getAdminDiseases error:", err);
+    throw err;
+  }
+};
+
+export const createAdminDisease = async (token, diseaseData) => {
+  try {
+    const response = await fetch(API_ENDPOINTS.ADMIN_DISEASES, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(diseaseData),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Gagal membuat data penyakit");
+    }
+    return data.data;
+  } catch (err) {
+    console.error("❌ createAdminDisease error:", err);
+    throw err;
+  }
+};
+
+export const updateAdminDisease = async (token, id, diseaseData) => {
+  try {
+    const response = await fetch(`${API_ENDPOINTS.ADMIN_DISEASES}/${id}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(diseaseData),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Gagal memperbarui data penyakit");
+    }
+    return data.data;
+  } catch (err) {
+    console.error("❌ updateAdminDisease error:", err);
+    throw err;
+  }
+};
+
+export const deleteAdminDisease = async (token, id, hard = false) => {
+  try {
+    const response = await fetch(`${API_ENDPOINTS.ADMIN_DISEASES}/${id}?hard=${hard}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Gagal menghapus penyakit");
+    }
+    return data.data;
+  } catch (err) {
+    console.error("❌ deleteAdminDisease error:", err);
+    throw err;
+  }
+};
+
+export const toggleAdminDisease = async (token, id, isActive) => {
+  try {
+    const response = await fetch(`${API_ENDPOINTS.ADMIN_DISEASES}/${id}/toggle`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ isActive }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Gagal mengubah status aktif");
+    }
+    return data.data;
+  } catch (err) {
+    console.error("❌ toggleAdminDisease error:", err);
+    throw err;
+  }
+};
+
+export const getAdminModels = async (token) => {
+  try {
+    const response = await fetch(API_ENDPOINTS.ADMIN_MODELS, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Gagal memuat model");
+    }
+    return data.data;
+  } catch (err) {
+    console.error("❌ getAdminModels error:", err);
+    throw err;
+  }
+};
+
+export const uploadAdminModel = async (token, formData) => {
+  try {
+    const response = await fetch(`${API_ENDPOINTS.ADMIN_MODELS}/upload`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`
+        // Do NOT set Content-Type header here, browser sets it automatically with form boundary
+      },
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Gagal mengunggah model");
+    }
+    return data.data;
+  } catch (err) {
+    console.error("❌ uploadAdminModel error:", err);
+    throw err;
+  }
+};
+
+export const activateAdminModel = async (token, id) => {
+  try {
+    const response = await fetch(`${API_ENDPOINTS.ADMIN_MODELS}/${id}/activate`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Gagal mengaktifkan model");
+    }
+    return data.data;
+  } catch (err) {
+    console.error("❌ activateAdminModel error:", err);
+    throw err;
+  }
+};
+
+export const deleteAdminModel = async (token, id) => {
+  try {
+    const response = await fetch(`${API_ENDPOINTS.ADMIN_MODELS}/${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Gagal menghapus model");
+    }
+    return data.data;
+  } catch (err) {
+    console.error("❌ deleteAdminModel error:", err);
+    throw err;
+  }
+};
+
+export const getAdminModelsHealth = async (token) => {
+  try {
+    const response = await fetch(`${API_ENDPOINTS.ADMIN_MODELS}/health`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Gagal mengambil status server AI");
+    }
+    return data.data;
+  } catch (err) {
+    console.error("❌ getAdminModelsHealth error:", err);
     throw err;
   }
 };

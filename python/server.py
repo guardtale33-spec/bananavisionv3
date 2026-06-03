@@ -20,9 +20,8 @@ app = FastAPI(title="BananaVision API", description="AI-powered banana disease d
 # Model configuration — switch via MODEL_TYPE env var
 # Supported: "mobilenetv2" (default) or "resnet50"
 # ─────────────────────────────────────────────────────────────────
-MODEL_TYPE = os.environ.get("MODEL_TYPE", "mobilenetv2").lower().strip()
-
 MODEL_DIR = os.path.dirname(__file__)
+ACTIVE_MODEL_JSON = os.path.join(MODEL_DIR, "active_model.json")
 
 MODEL_CONFIG = {
     "mobilenetv2": {
@@ -43,11 +42,23 @@ MODEL_CONFIG = {
     },
 }
 
+# Determine default model type and path on startup
+MODEL_TYPE = os.environ.get("MODEL_TYPE", "mobilenetv2").lower().strip()
+ACTIVE_FILENAME = None
+
+import json
+if os.path.exists(ACTIVE_MODEL_JSON):
+    try:
+        with open(ACTIVE_MODEL_JSON, "r") as f:
+            active_cfg = json.load(f)
+            MODEL_TYPE = active_cfg.get("model_type", "mobilenetv2").lower().strip()
+            ACTIVE_FILENAME = active_cfg.get("filename", None)
+            print(f"📖 Loaded active model config from JSON: {ACTIVE_FILENAME} ({MODEL_TYPE})")
+    except Exception as e:
+        print(f"⚠️ Failed to read active_model.json: {e}. Using defaults/env.")
+
 if MODEL_TYPE not in MODEL_CONFIG:
-    raise ValueError(
-        f"MODEL_TYPE='{MODEL_TYPE}' tidak didukung. "
-        f"Gunakan: {', '.join(MODEL_CONFIG.keys())}"
-    )
+    MODEL_TYPE = "mobilenetv2"
 
 _cfg = MODEL_CONFIG[MODEL_TYPE]
 
@@ -60,11 +71,13 @@ imagenet_model = None
 async def load_model():
     global disease_model, imagenet_model
 
-    model_path = _cfg["path"]
+    # Gunakan filename aktif jika dimuat dari JSON config, jika tidak gunakan path default
+    model_path = os.path.join(MODEL_DIR, ACTIVE_FILENAME) if (ACTIVE_FILENAME and os.path.exists(os.path.join(MODEL_DIR, ACTIVE_FILENAME))) else _cfg["path"]
+    
     if not os.path.exists(model_path):
         raise FileNotFoundError(
             f"Model file tidak ditemukan: {model_path}. "
-            f"Pastikan file model '{MODEL_TYPE}' ada di folder python/"
+            f"Pastikan file model ada di folder python/"
         )
 
     print(f"🔄 Loading disease model ({MODEL_TYPE}): {os.path.basename(model_path)}")
@@ -391,7 +404,72 @@ async def root():
         "model_type": MODEL_TYPE,
     }
 
+class ReloadRequest(BaseModel):
+    filename: str
+    model_type: str  # "mobilenetv2" or "resnet50"
 
+@app.post("/api/reload")
+async def reload_model(request: ReloadRequest):
+    global disease_model, imagenet_model, MODEL_TYPE, ACTIVE_FILENAME, _cfg
+    
+    model_type = request.model_type.lower().strip()
+    if model_type not in MODEL_CONFIG:
+        raise HTTPException(status_code=400, detail=f"Model type '{model_type}' tidak didukung.")
+        
+    model_path = os.path.join(MODEL_DIR, request.filename)
+    if not os.path.exists(model_path):
+        raise HTTPException(status_code=404, detail=f"File model '{request.filename}' tidak ditemukan di folder python/")
+        
+    try:
+        print(f"🔄 Reloading disease model to {request.filename} ({model_type})...")
+        new_disease_model = tf.keras.models.load_model(model_path)
+        
+        # Load new ImageNet gatekeeper
+        new_cfg = MODEL_CONFIG[model_type]
+        new_imagenet_model = new_cfg["imagenet_loader"]()
+        
+        # Update globals
+        disease_model = new_disease_model
+        imagenet_model = new_imagenet_model
+        MODEL_TYPE = model_type
+        ACTIVE_FILENAME = request.filename
+        _cfg = new_cfg
+        
+        # Simpan konfigurasi model aktif
+        with open(ACTIVE_MODEL_JSON, "w") as f:
+            json.dump({
+                "model_type": model_type,
+                "filename": request.filename
+            }, f)
+        
+        print(f"✅ Success! Reloaded model: {request.filename}")
+        return {
+            "success": True, 
+            "message": f"Model berhasil dimuat: {request.filename}",
+            "model_type": model_type,
+            "filename": request.filename
+        }
+    except Exception as e:
+        import traceback
+        print(f"❌ Failed to reload model:\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Gagal memuat model: {str(e)}")
+
+@app.get("/api/models")
+async def list_available_models():
+    """List all available .keras model files inside python/ directory"""
+    try:
+        files = os.listdir(MODEL_DIR)
+        model_files = [f for f in files if f.endswith(".keras")]
+        return {
+            "success": True,
+            "models": model_files,
+            "active_model": {
+                "filename": ACTIVE_FILENAME or "model_mobilenetv2_final.keras",
+                "model_type": MODEL_TYPE
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
