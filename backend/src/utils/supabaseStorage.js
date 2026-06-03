@@ -30,10 +30,35 @@ async function uploadToSupabase(localFilePath, destinationFileName) {
   }
 
   console.log(`Uploaded successfully to Supabase! Path: ${data.path}`);
-  
-  // Return the public URL
+
   const supabaseUrl = process.env.SUPABASE_URL.replace(/\/$/, "");
   return `${supabaseUrl}/storage/v1/object/public/${bucketName}/${destinationFileName}`;
 }
 
-module.exports = { uploadToSupabase };
+/**
+ * Delete a file from Supabase Storage
+ * @param {string} fileName - Name of the file to delete from the bucket
+ * @returns {Promise<boolean>} - true if deleted, false if Supabase not configured or failed
+ */
+async function deleteFromSupabase(fileName) {
+  if (!supabase) {
+    console.log("Supabase not configured, skipping cloud storage delete.");
+    return false;
+  }
+
+  const bucketName = process.env.SUPABASE_BUCKET || "models";
+  console.log(`Deleting '${fileName}' from Supabase bucket '${bucketName}'...`);
+
+  const { error } = await supabase.storage.from(bucketName).remove([fileName]);
+
+  if (error) {
+    // Don't throw — deletion failure shouldn't block the overall delete flow
+    console.error("Supabase delete failed:", error.message);
+    return false;
+  }
+
+  console.log(`Deleted '${fileName}' from Supabase successfully.`);
+  return true;
+}
+
+module.exports = { uploadToSupabase, deleteFromSupabase };

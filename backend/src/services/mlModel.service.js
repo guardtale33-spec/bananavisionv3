@@ -2,6 +2,7 @@ const MlModelModel = require("../models/mlModelModel");
 const axios = require("axios");
 const path = require("path");
 const fs = require("fs");
+const { deleteFromSupabase } = require("../utils/supabaseStorage");
 
 const ML_SERVER_URL = (
   process.env.ML_SERVER_URL || "https://bananavisionv3-production-deee.up.railway.app"
@@ -15,65 +16,27 @@ class MlModelService {
    */
   static async getModels() {
     try {
-      // 1. Get files from Python ML server
-      let pyModels = [];
+      // 1. Get active model info from Python ML server
       let activePyModel = null;
       try {
         const response = await axios.get(`${ML_SERVER_URL}/api/models`);
         if (response.data && response.data.success) {
-          pyModels = response.data.models;
           activePyModel = response.data.active_model;
         }
       } catch (err) {
         console.error("⚠️ Failed to reach Python ML server /api/models:", err.message);
-        // Fallback to reading the directory directly
-        try {
-          const files = fs.readdirSync(PYTHON_MODEL_DIR);
-          pyModels = files.filter(f => f.endsWith(".keras"));
-        } catch (dirErr) {
-          console.error("⚠️ Failed to read python directory directly:", dirErr.message);
-        }
+        // Non-fatal: continue with DB data only
       }
 
-      // 2. Sync files with DB
-      for (const filename of pyModels) {
-        let dbModel = await MlModelModel.findByFilename(filename);
-        if (!dbModel) {
-          // Determine type based on filename
-          let modelType = "mobilenetv2";
-          if (filename.toLowerCase().includes("resnet")) {
-            modelType = "resnet50";
-          } else if (filename.toLowerCase().includes("custom")) {
-            modelType = "custom";
-          }
-          
-          let fileSize = null;
-          try {
-            const stats = fs.statSync(path.join(PYTHON_MODEL_DIR, filename));
-            fileSize = stats.size;
-          } catch (e) {}
-
-          // Auto register
-          await MlModelModel.create({
-            name: filename.replace(".keras", "").replace(/_/g, " "),
-            filename,
-            modelType,
-            isActive: !!(activePyModel && activePyModel.filename === filename),
-            fileSize,
-          });
-        }
-      }
-
-      // 3. Retrieve all models from DB
+      // 2. Retrieve all models from DB (source of truth)
       const dbModels = await MlModelModel.findAll();
 
-      // Ensure the DB active flag matches Python active state if reachable
-      if (activePyModel) {
+      // 3. Sync active status from Python into DB (only if Python is reachable and model exists in DB)
+      if (activePyModel && activePyModel.filename) {
         const activeDbModel = dbModels.find(m => m.filename === activePyModel.filename);
         if (activeDbModel && !activeDbModel.isActive) {
           await MlModelModel.update(activeDbModel.id, { isActive: true });
           await MlModelModel.deactivateAllExcept(activeDbModel.id);
-          // Refresh list
           return await MlModelModel.findAll();
         }
       }
@@ -83,6 +46,7 @@ class MlModelService {
       throw error;
     }
   }
+
 
   /**
    * Activate a model in the system
@@ -165,21 +129,26 @@ class MlModelService {
       throw new Error("Model tidak ditemukan");
     }
 
-    if (model.isActive) {
-      throw new Error("Model yang sedang aktif tidak dapat dihapus. Silakan aktifkan model lain terlebih dahulu.");
-    }
-
-    // Delete file
+    // 1. Delete local file if it exists
     const filePath = path.join(PYTHON_MODEL_DIR, model.filename);
     if (fs.existsSync(filePath)) {
       try {
         fs.unlinkSync(filePath);
+        console.log(`Deleted local file: ${filePath}`);
       } catch (err) {
-        console.error(`⚠️ Gagal menghapus file ${filePath}:`, err.message);
+        console.error(`Failed to delete local file ${filePath}:`, err.message);
       }
     }
 
-    // Delete DB record
+    // 2. Delete from Supabase Storage if configured
+    try {
+      await deleteFromSupabase(model.filename);
+    } catch (err) {
+      console.error("Failed to delete from Supabase:", err.message);
+      // Continue — don't block DB deletion
+    }
+
+    // 3. Delete DB record
     return await MlModelModel.delete(id);
   }
 
