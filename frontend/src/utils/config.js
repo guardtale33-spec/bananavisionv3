@@ -1,6 +1,6 @@
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL;
 
-const DEFAULT_BASE_URL = "https://bananavisionv3-production.up.railway.app/api";
+const DEFAULT_BASE_URL = "http://localhost:5000/api";
 
 // Module-level flag agar warning hanya muncul sekali
 let _warnedMissingUrl = false;

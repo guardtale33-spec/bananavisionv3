@@ -26,12 +26,20 @@ export default function AdminModelsPage({ token }) {
   async function loadData() {
     try {
       setLoading(true);
-      const [modelsData, healthData] = await Promise.all([
-        getAdminModels(token),
-        getAdminModelsHealth(token),
-      ]);
-      setModels(modelsData);
-      setHealth(healthData);
+      setError(null);
+
+      // Load models (required) — load health separately so failures don't block the model list
+      const modelsData = await getAdminModels(token);
+      setModels(modelsData ?? []);
+
+      // Health check is optional — don't let it crash the page
+      try {
+        const healthData = await getAdminModelsHealth(token);
+        setHealth(healthData);
+      } catch (healthErr) {
+        console.warn("Health check failed (non-fatal):", healthErr.message);
+        setHealth({ online: false, message: healthErr.message });
+      }
     } catch (err) {
       setError(err.message || "Gagal memuat sistem model");
     } finally {

@@ -435,12 +435,12 @@ class ReloadRequest(BaseModel):
 
 @app.post("/api/reload")
 async def reload_model(request: ReloadRequest):
-    global disease_model, imagenet_model, MODEL_TYPE, ACTIVE_FILENAME, _cfg
-    
+    global disease_model, imagenet_model, MODEL_TYPE, ACTIVE_FILENAME, ACTIVE_URL, _cfg
+
     model_type = request.model_type.lower().strip()
     if model_type not in MODEL_CONFIG:
         raise HTTPException(status_code=400, detail=f"Model type '{model_type}' tidak didukung.")
-        
+
     model_path = os.path.join(MODEL_DIR, request.filename)
     if not os.path.exists(model_path):
         if request.url:
@@ -454,36 +454,47 @@ async def reload_model(request: ReloadRequest):
                 raise HTTPException(status_code=500, detail=f"Gagal mendownload model dari Cloud Storage: {str(e)}")
         else:
             raise HTTPException(status_code=404, detail=f"File model '{request.filename}' tidak ditemukan di folder python/")
-        
+
     try:
-        print(f"🔄 Reloading disease model to {request.filename} ({model_type})...")
+        # Step 1: Load disease model (required)
+        print(f"🔄 Loading disease model: {request.filename} ({model_type})...")
         new_disease_model = tf.keras.models.load_model(model_path)
-        
-        # Load new ImageNet gatekeeper
+        print(f"✅ Disease model loaded!")
+
         new_cfg = MODEL_CONFIG[model_type]
-        new_imagenet_model = new_cfg["imagenet_loader"]()
-        
-        # Update globals
+
+        # Step 2: Load ImageNet gatekeeper (optional — failure won't block activation)
+        new_imagenet_model = None
+        try:
+            print(f"🔄 Loading ImageNet gatekeeper ({model_type})...")
+            new_imagenet_model = new_cfg["imagenet_loader"]()
+            print(f"✅ ImageNet gatekeeper loaded!")
+        except Exception as gk_err:
+            print(f"⚠️ ImageNet gatekeeper failed to load (non-fatal): {gk_err}")
+
+        # Step 3: Update globals
         disease_model = new_disease_model
         imagenet_model = new_imagenet_model
         MODEL_TYPE = model_type
         ACTIVE_FILENAME = request.filename
+        ACTIVE_URL = request.url
         _cfg = new_cfg
-        
-        # Simpan konfigurasi model aktif
+
+        # Step 4: Save active model config
         with open(ACTIVE_MODEL_JSON, "w") as f:
             json.dump({
                 "model_type": model_type,
                 "filename": request.filename,
                 "url": request.url
             }, f)
-        
-        print(f"✅ Success! Reloaded model: {request.filename}")
+
+        print(f"✅ Reload complete: {request.filename} | gatekeeper: {'loaded' if new_imagenet_model else 'disabled'}")
         return {
-            "success": True, 
+            "success": True,
             "message": f"Model berhasil dimuat: {request.filename}",
             "model_type": model_type,
-            "filename": request.filename
+            "filename": request.filename,
+            "gatekeeper_loaded": new_imagenet_model is not None
         }
     except Exception as e:
         import traceback
